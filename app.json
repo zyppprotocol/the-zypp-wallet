@@ -1,0 +1,98 @@
+{
+  "expo": {
+    "name": "The Zypp Wallet",
+    "slug": "the-zypp-wallet",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "scheme": "myapp",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/images/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#5B21B6"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSPhotoLibraryUsageDescription": "This app needs access to your photo library to select and save images.",
+        "NSPhotoLibraryAddUsageDescription": "This app needs permission to save photos to your photo library.",
+        "NSCameraUsageDescription": "This app needs access to your camera to take photos.",
+        "NSLocationWhenInUseUsageDescription": "This app needs access to your location to provide location-based features.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "This app needs access to your location to provide location-based features.",
+        "NSContactsUsageDescription": "This app needs access to your contacts to help you connect with friends.",
+        "NSUserTrackingUsageDescription": "This app needs permission to track your activity across other apps and websites."
+      },
+      "bundleIdentifier": "com.zypp.wallet",
+      "icon": {
+        "dark": "./assets/icons/ios-dark.png",
+        "light": "./assets/icons/ios-light.png",
+        "tinted": "./assets/icons/ios-tinted.png"
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/icons/adaptive-icon.png",
+        "monochromeImage": "./assets/icons/adaptive-icon.png",
+        "backgroundColor": "#5B21B6"
+      },
+      "edgeToEdgeEnabled": true,
+      "permissions": [
+        "CAMERA",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE",
+        "ACCESS_MEDIA_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "READ_CONTACTS",
+        "WRITE_CONTACTS"
+      ],
+      "package": "com.zypp.wallet"
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "static",
+      "favicon": "./assets/images/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Allow The Zypp Wallet to use your biometrics (Face ID and Fingerprint)."
+        }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/icons/splash-icon-dark.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "dark": {
+            "image": "./assets/icons/splash-icon-light.png",
+            "backgroundColor": "#000000"
+          },
+          "backgroundColor": "#ffffff"
+        }
+      ],
+     [
+        "expo-secure-store",
+        {
+          "configureAndroidBackup": true,
+          "faceIDPermission": "Allow The Zypp Wallet to access your Face ID biometric data."
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "367b5341-846a-4896-a54e-9473679989f3"
+      }
+    }
+  }
+}
