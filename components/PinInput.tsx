@@ -1,3 +1,4 @@
+import { useColorScheme } from "@/hooks/useColorScheme";
 import React, { useEffect, useRef, useState } from "react";
 import {
   NativeSyntheticEvent,
@@ -30,6 +31,7 @@ export default function PinInput({
   testID,
   digitColor,
 }: PinInputProps) {
+  const colorScheme = useColorScheme();
   const [digits, setDigits] = useState<string[]>(() => {
     const arr = Array.from({ length }).map((_, i) => value[i] ?? "");
     return arr;
@@ -140,11 +142,17 @@ export default function PinInput({
           key={i}
           activeOpacity={0.9}
           onPress={() => focusIndex(i)}
-          style={[
-            styles.box,
-            i < length - 1 ? { marginRight: 12 } : undefined,
-            digits[i] ? styles.boxFilled : undefined,
-          ]}
+          className={`w-16 h-16 rounded-xl border justify-center items-center relative ${
+            colorScheme === "dark"
+              ? "bg-white/5 border-white/15"
+              : "bg-black/5 border-white/15"
+          } ${
+            digits[i]
+              ? colorScheme === "dark"
+                ? "bg-white/10"
+                : "bg-black/10"
+              : ""
+          } ${i < length - 1 ? "mr-3" : ""}`}
         >
           <TextInput
             ref={(r) => (inputs.current[i] = r)}
@@ -164,7 +172,16 @@ export default function PinInput({
           />
           {/* Show visually masked or digit via Text overlay to have consistent visuals */}
           <View pointerEvents="none" style={styles.overlay}>
-            <Text style={[styles.digit, { color: digitColor ?? "white" }]} className="transition-all">
+            <Text
+              style={[
+                styles.digit,
+                {
+                  color:
+                    digitColor || (colorScheme === "dark" ? "white" : "black"),
+                },
+              ]}
+              className="transition-all"
+            >
               {digits[i] ? (masked[i] ? "•" : digits[i]) : ""}
             </Text>
           </View>
@@ -179,20 +196,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "center",
     alignItems: "center",
-  },
-  box: {
-    width: 56,
-    height: 56,
-    borderRadius: 12,
-    backgroundColor: "rgba(255,255,255,0.03)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
-    justifyContent: "center",
-    alignItems: "center",
-    position: "relative",
-  },
-  boxFilled: {
-    backgroundColor: "rgba(255,255,255,0.06)",
   },
   input: {
     position: "absolute",
@@ -210,7 +213,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   digit: {
-    color: "white",
     fontSize: 22,
     fontWeight: "700",
   },

@@ -20,7 +20,8 @@ Stop building UI components from scratch! This Expo starter template comes with:
 -  **20+ Pre-built Components** - Buttons, Cards, Dialogs, Bottom Sheets, and more
 -  **Platform-Specific UI** - Automatic iOS/Android adaptations
 -  **Dark Mode Ready** - System-aware theme switching
--  **Permission Management** - Unified API for all device permissions
+-  **Permission Management** - Uni
+ied API for all device permissions
 -  **TypeScript First** - Full type safety out of the box
 -  **Production Ready** - Best practices and scalable architecture
 

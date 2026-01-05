@@ -1,6 +1,7 @@
 import { SafeAreaView, Text, View, useColorScheme } from "@/components/ui";
 import useUser from "@/hooks/useUser";
 import { Ionicons } from "@expo/vector-icons";
+import { Image } from "expo-image";
 import { useRouter } from "expo-router";
 import React from "react";
 import { Alert, TouchableOpacity } from "react-native";
@@ -56,78 +57,106 @@ export default function Settings() {
   };
 
   return (
-    <SafeAreaView className="flex-1 px-6 py-6">
-      <View className="flex-row items-center mb-4">
-        <TouchableOpacity onPress={() => router.back()} className="p-2 mr-3">
-          <Ionicons
-            name="chevron-back-outline"
-            size={20}
-            color={colorScheme === "dark" ? "#fff" : "#000"}
-          />
-        </TouchableOpacity>
-        <Text className="text-2xl font-bold">Settings</Text>
-      </View>
-
-      <View className="rounded-2xl bg-white/5 p-4">
-        <Text className="font-semibold">Privacy mode</Text>
-        <Text className="text-sm opacity-70">
-          {user?.settings?.defaultPrivacyMode ?? "standard"}
-        </Text>
-
-        <View className="mt-4">
-          <Text className="font-semibold">Offline transactions</Text>
-          <Text className="text-sm opacity-70">
-            {String(user?.settings?.allowOfflineTransactions ?? true)}
-          </Text>
+    <SafeAreaView className="relative flex-1">
+      {colorScheme === "dark" ? (
+        <Image
+          source={require("@/assets/images/home-gradient.png")}
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            right: 0,
+            width: "120%",
+            height: 500,
+          }}
+          resizeMode="cover"
+        />
+      ) : (
+        <Image
+          source={require("@/assets/images/home-gradient-light.png")}
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            right: 0,
+            width: "120%",
+            height: 500,
+          }}
+          resizeMode="cover"
+        />
+      )}
+      <View className="px-6 py-6">
+        <View className="flex-row items-center mb-4">
+          <TouchableOpacity onPress={() => router.back()} className="p-2 mr-3">
+            <Ionicons
+              name="chevron-back-outline"
+              size={20}
+              color={colorScheme === "dark" ? "#fff" : "#000"}
+            />
+          </TouchableOpacity>
+          <Text className="text-2xl font-semibold">Settings</Text>
         </View>
 
-        <TouchableOpacity onPress={showAutoLockOptions} className="mt-4">
-          <Text className="font-semibold">Auto-lock</Text>
+        <View className="rounded-2xl bg-white/5 p-4">
+          <Text className="font-semibold">Privacy mode</Text>
           <Text className="text-sm opacity-70">
-            {formatTimeout(user?.settings?.autoLockTimeoutMs)}
+            {user?.settings?.defaultPrivacyMode ?? "standard"}
           </Text>
-        </TouchableOpacity>
 
-        {/* Dev-only: Clear local user and wallet (useful to reset state during testing) */}
-        {__DEV__ ? (
-          <TouchableOpacity
-            onPress={() =>
-              Alert.alert(
-                "Clear local data",
-                "This will delete the local Zypp user and wipe the wallet on this device. This is destructive. Continue?",
-                [
-                  { text: "Cancel", style: "cancel" },
-                  {
-                    text: "Clear",
-                    style: "destructive",
-                    onPress: async () => {
-                      try {
-                        const { SecureStorage } = await import(
-                          "@/lib/storage/secure-storage"
-                        );
-                        await SecureStorage.deleteUser();
-                        await SecureStorage.wipeWallet();
-                        Alert.alert(
-                          "Cleared",
-                          "Local user and wallet wiped. Returning to welcome."
-                        );
-                        router.replace("/welcome");
-                      } catch (err) {
-                        console.warn("Failed to clear local data", err);
-                        Alert.alert("Error", "Failed to clear local data");
-                      }
-                    },
-                  },
-                ]
-              )
-            }
-            className="mt-4"
-          >
-            <Text className="text-sm text-red-500">
-              Clear local user & wallet (dev)
+          <View className="mt-4">
+            <Text className="font-semibold">Offline transactions</Text>
+            <Text className="text-sm opacity-70">
+              {String(user?.settings?.allowOfflineTransactions ?? true)}
+            </Text>
+          </View>
+
+          <TouchableOpacity onPress={showAutoLockOptions} className="mt-4">
+            <Text className="font-semibold">Auto-lock</Text>
+            <Text className="text-sm opacity-70">
+              {formatTimeout(user?.settings?.autoLockTimeoutMs)}
             </Text>
           </TouchableOpacity>
-        ) : null}
+
+          {/* Dev-only: Clear local user and wallet (useful to reset state during testing) */}
+          {__DEV__ ? (
+            <TouchableOpacity
+              onPress={() =>
+                Alert.alert(
+                  "Clear local data",
+                  "This will delete the local Zypp user and wipe the wallet on this device. This is destructive. Continue?",
+                  [
+                    { text: "Cancel", style: "cancel" },
+                    {
+                      text: "Clear",
+                      style: "destructive",
+                      onPress: async () => {
+                        try {
+                          const { SecureStorage } =
+                            await import("@/lib/storage/secure-storage");
+                          await SecureStorage.deleteUser();
+                          await SecureStorage.wipeWallet();
+                          Alert.alert(
+                            "Cleared",
+                            "Local user and wallet wiped. Returning to welcome."
+                          );
+                          router.replace("/welcome");
+                        } catch (err) {
+                          console.warn("Failed to clear local data", err);
+                          Alert.alert("Error", "Failed to clear local data");
+                        }
+                      },
+                    },
+                  ]
+                )
+              }
+              className="mt-4"
+            >
+              <Text className="text-sm text-red-500">
+                Clear local user & wallet (dev)
+              </Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
       </View>
     </SafeAreaView>
   );

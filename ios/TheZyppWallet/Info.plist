@@ -27,7 +27,7 @@
       <dict>
         <key>CFBundleURLSchemes</key>
         <array>
-          <string>myapp</string>
+          <string>zypp</string>
           <string>com.zypp.wallet</string>
         </array>
       </dict>
@@ -55,6 +55,8 @@
     <string>This app needs access to your camera to take photos.</string>
     <key>NSContactsUsageDescription</key>
     <string>This app needs access to your contacts to help you connect with friends.</string>
+    <key>NSFaceIDUsageDescription</key>
+    <string>Allow The Zypp Wallet to use your biometrics (Face ID and Fingerprint).</string>
     <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
     <string>This app needs access to your location to provide location-based features.</string>
     <key>NSLocationWhenInUseUsageDescription</key>

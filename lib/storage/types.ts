@@ -27,6 +27,8 @@ export interface ZyppUser {
     platform: "ios" | "android";
     lastUnlockedAt: number;
     lastSyncedAt?: number;
+        lastInactivityLockAt?: number; // Track when user was auto-locked due to inactivity
+
   };
   // Optional profile information
   profileImageUrl?: string | null;

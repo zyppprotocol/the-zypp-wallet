@@ -54,11 +54,14 @@ export default function CreateUser() {
         return;
       }
 
+      // Append .zypp suffix to username
+      const zyppUsername = `${username.trim()}.zypp`;
+
       // If a wallet already exists, finalize the ZyppUser binding
       try {
         await Solana.getPublicKeyBase58();
         // wallet exists
-        const user = await finalizeUser(username.trim());
+        const user = await finalizeUser(zyppUsername);
         console.log("Finalized user:", user);
         Alert.alert("Welcome", `Account ${user.zyppUserId} created`);
         if (newWalletFlag) {
@@ -71,7 +74,7 @@ export default function CreateUser() {
         // No wallet exists -> create user + wallet
         console.warn("No existing wallet detected, creating wallet+user", e);
         const user = await createUser({
-          zyppUserId: username.trim(),
+          zyppUserId: zyppUsername,
           useBiometric: true,
         });
         console.log("Created user & wallet:", user);
@@ -142,15 +145,25 @@ export default function CreateUser() {
           Pick a username to get started.
         </Text>
 
-        <TextInput
-          placeholder="Choose a username"
-          value={username}
-          onChangeText={setUsername}
-          autoCapitalize="none"
-          autoCorrect={false}
-          placeholderClassName="dark:text-white/50"
-          className="mb-4 px-3 py-4 rounded-2xl border border-black/10 dark:border-white/10 bg-black/5 dark:text-white dark:bg-white/5"
-        />
+        <View className="mb-4 rounded-2xl border border-black/10 dark:border-white/10 bg-black/5 dark:bg-white/5 px-3 py-4">
+          <TextInput
+            placeholder="Choose a username"
+            value={username}
+            onChangeText={setUsername}
+            autoCapitalize="none"
+            autoCorrect={false}
+            placeholderClassName="dark:text-white/50"
+            className="dark:text-white text-base"
+          />
+          {username && (
+            <Text className="text-xs opacity-60 mt-2">
+              Your account:{" "}
+              <Text className="font-semibold opacity-100">
+                {username.trim()}.zypp
+              </Text>
+            </Text>
+          )}
+        </View>
 
         <TouchableOpacity
           disabled={loading}

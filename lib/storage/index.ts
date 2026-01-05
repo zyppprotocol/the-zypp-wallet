@@ -8,8 +8,11 @@ export { useBiometricAuth } from "./biometric";
 export type { BiometricAuthResult, BiometricAuthStatus } from "./biometric";
 
 export { OfflineTransactionQueue } from "./offline-queue";
-export type { OfflineTransaction, TransactionIntent } from "./offline-queue";
+export type {
+  OfflineTransaction,
+  TransactionIntent,
+  TransactionStatus,
+} from "./types";
 
-export type { ZyppUser } from "./types";
 export { ErrorCodes } from "./types";
-export type { SecureStorageError } from "./types";
+export type { SecureStorageError, ZyppUser } from "./types";

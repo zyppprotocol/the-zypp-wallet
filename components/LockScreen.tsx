@@ -99,7 +99,7 @@ export const LockScreen: React.FC = () => {
             onComplete={(v) => onSubmitPin(v)}
             autoFocus
             secure
-            digitColor={colorScheme === "dark" ? "white" : "black"}
+            digitColor="white"
           />
 
           <View style={{ height: 12 }} />

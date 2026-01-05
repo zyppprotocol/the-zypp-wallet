@@ -17,11 +17,12 @@ import * as Solana from "@/lib/solana";
 import { Ionicons } from "@expo/vector-icons";
 import { setStringAsync } from "expo-clipboard";
 import { useRouter } from "expo-router";
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
   Image,
+  RefreshControl,
   TouchableOpacity,
 } from "react-native";
 
@@ -30,12 +31,34 @@ export const Me = () => {
   const colorScheme = useColorScheme();
   const { user, refresh } = useUser();
   const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   const [balanceSol, setBalanceSol] = useState<number | null>(null);
   const [balLoading, setBalLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
 
   const isOnline = useIsOnline();
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      if (!isOnline) {
+        Alert.alert(
+          "Offline Mode",
+          "You are currently offline. Some data may not be up to date."
+        );
+      }
+      await refresh();
+    } catch (err) {
+      console.error("Failed to refresh:", err);
+      Alert.alert(
+        "Refresh Failed",
+        "Could not update your balance. Please try again."
+      );
+    } finally {
+      setRefreshing(false);
+    }
+  }, [refresh, isOnline]);
 
   useEffect(() => {
     let mounted = true;
@@ -157,13 +180,59 @@ export const Me = () => {
   };
 
   return (
-    <SafeAreaView className="flex-1 px-6 py-6">
-      <ScrollView>
+    <SafeAreaView className="relative flex-1">
+      {colorScheme === "dark" ? (
+        <Image
+          source={require("@/assets/images/home-gradient.png")}
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            right: 0,
+            width: "120%",
+            height: 500,
+          }}
+          resizeMode="cover"
+        />
+      ) : (
+        <Image
+          source={require("@/assets/images/home-gradient-light.png")}
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            right: 0,
+            width: "120%",
+            height: 500,
+          }}
+          resizeMode="cover"
+        />
+      )}
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        scrollEnabled={true}
+        nestedScrollEnabled={true}
+        contentContainerStyle={{ flexGrow: 1 }}
+        className="px-6 py-6"
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={colorScheme === "dark" ? "#ffffff" : "#000000"}
+            colors={[colorScheme === "dark" ? "#ffffff" : "#000000"]}
+            progressBackgroundColor={
+              colorScheme === "dark" ? "#000000" : "#ffffff"
+            }
+            title="Refreshing..."
+            titleColor="#888888"
+          />
+        }
+      >
         {/* Header */}
         <View>
           <View className="flex-row items-center justify-between mb-6">
             <View>
-              <Text className="text-2xl font-bold">
+              <Text className="text-2xl font-semibold">
                 {user?.zyppUserId || "Your name"}
               </Text>
               <View className="flex-row items-center mt-2">

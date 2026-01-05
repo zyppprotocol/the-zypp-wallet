@@ -196,7 +196,9 @@ export default function SetupBiometrics() {
 
             <View className="mb-6 flex items-start w-full">
               <View className="flex flex-row items-center gap-2 mb-4">
-                <Text className="text-white/70 text-sm">Enter your PIN</Text>
+                <Text className="text-black dark:text-white/70 text-sm">
+                  Enter your PIN
+                </Text>
                 <TouchableOpacity onPress={() => setShowPin(!showPin)}>
                   <Ionicons
                     name={showPin ? "eye-outline" : "eye-off-outline"}
@@ -211,7 +213,6 @@ export default function SetupBiometrics() {
                 onChange={(v) => setPin(v)}
                 autoFocus
                 secure={!showPin}
-                digitColor={colorScheme === "dark" ? "white" : "black"}
               />
             </View>
 
@@ -280,7 +281,9 @@ export default function SetupBiometrics() {
 
             <View className="mb-6 flex items-start w-full">
               <View className="flex flex-row items-center gap-2 mb-4">
-                <Text className="text-white/70 text-sm">Confirm PIN</Text>
+                <Text className="text-black dark:text-white/70 text-sm">
+                  Enter your PIN
+                </Text>
                 <TouchableOpacity
                   onPress={() => setShowConfirmPin(!showConfirmPin)}
                 >
@@ -297,7 +300,6 @@ export default function SetupBiometrics() {
                 onChange={(v) => setPinConfirm(v)}
                 autoFocus
                 secure={!showConfirmPin}
-                digitColor={colorScheme === "dark" ? "white" : "black"}
               />
             </View>
 

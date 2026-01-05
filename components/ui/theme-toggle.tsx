@@ -49,9 +49,13 @@ export function ThemeToggle({ className }: { className?: string }) {
   }, [isDark, pref]);
 
   const cycle = () => {
-    const next: ThemePref =
-      pref === "system" ? "dark" : pref === "dark" ? "light" : "system";
-    setPref(next);
+    try {
+      const next: ThemePref =
+        pref === "system" ? "dark" : pref === "dark" ? "light" : "system";
+      setPref(next);
+    } catch (err) {
+      console.warn("[ThemeToggle] Error cycling theme:", err);
+    }
   };
 
   let label = "System";

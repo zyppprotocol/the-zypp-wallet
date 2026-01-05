@@ -3,9 +3,10 @@ import useUser from "@/hooks/useUser";
 import { updateUserProfileImage } from "@/lib/auth";
 import { Ionicons } from "@expo/vector-icons";
 import { setStringAsync } from "expo-clipboard";
+import { Image } from "expo-image";
 import { useRouter } from "expo-router";
 import React, { useState } from "react";
-import { Alert, Image, TouchableOpacity } from "react-native";
+import { Alert, Image as RNImage, TouchableOpacity } from "react-native";
 
 export default function Profile() {
   const { user, refresh } = useUser();
@@ -41,49 +42,80 @@ export default function Profile() {
   };
 
   return (
-    <SafeAreaView className="flex-1 px-6 py-6">
-      <View className="flex-row items-center mb-4">
-        <TouchableOpacity onPress={() => router.back()} className="p-2 mr-3">
-          <Ionicons
-            name="chevron-back-outline"
-            size={20}
-            color={colorScheme === "dark" ? "#fff" : "#000"}
-          />
-        </TouchableOpacity>
-        <Text className="text-2xl font-bold">Manage Zypp account</Text>
-      </View>
+    <SafeAreaView className="relative flex-1">
+      {colorScheme === "dark" ? (
+        <Image
+          source={require("@/assets/images/home-gradient.png")}
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            right: 0,
+            width: "120%",
+            height: 500,
+          }}
+          resizeMode="cover"
+        />
+      ) : (
+        <Image
+          source={require("@/assets/images/home-gradient-light.png")}
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            right: 0,
+            width: "120%",
+            height: 500,
+          }}
+          resizeMode="cover"
+        />
+      )}
+      <View className="px-6 py-6">
+        <View className="flex-row items-center mb-4">
+          <TouchableOpacity onPress={() => router.back()} className="p-2 mr-3">
+            <Ionicons
+              name="chevron-back-outline"
+              size={20}
+              color={colorScheme === "dark" ? "#fff" : "#000"}
+            />
+          </TouchableOpacity>
+          <Text className="text-2xl font-semibold">Manage Zypp account</Text>
+        </View>
 
-      <View className="rounded-2xl bg-white/5 p-4 mb-4 items-center">
-        {user?.profileImageUrl ? (
-          <Image
-            source={{ uri: user.profileImageUrl }}
-            style={{ width: 96, height: 96, borderRadius: 48 }}
-          />
-        ) : (
-          <View className="w-24 h-24 rounded-full bg-black/5 items-center justify-center">
-            <Text className="text-xl font-semibold">
-              {user?.zyppUserId?.charAt(0)?.toUpperCase() ?? "U"}
-            </Text>
+        <View className="rounded-2xl bg-white/5 p-4 mb-4 items-center">
+          {user?.profileImageUrl ? (
+            <RNImage
+              source={{ uri: user.profileImageUrl }}
+              style={{ width: 96, height: 96, borderRadius: 48 }}
+            />
+          ) : (
+            <View className="w-24 h-24 rounded-full bg-black/5 items-center justify-center">
+              <Text className="text-xl font-semibold">
+                {user?.zyppUserId?.charAt(0)?.toUpperCase() ?? "U"}
+              </Text>
+            </View>
+          )}
+
+          <Text className="mt-3 font-semibold">{user?.zyppUserId}</Text>
+          <Text className="text-sm opacity-70 mt-1">
+            {user?.solanaPublicKey}
+          </Text>
+
+          <View className="flex-row mt-4">
+            <TouchableOpacity
+              onPress={handlePickImage}
+              className="mr-3 bg-white/5 rounded-2xl p-3"
+            >
+              <Text>{uploading ? "Uploading…" : "Change photo"}</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={handleCopy}
+              className="bg-white/5 rounded-2xl p-3"
+            >
+              <Text>Copy address</Text>
+            </TouchableOpacity>
           </View>
-        )}
-
-        <Text className="mt-3 font-semibold">{user?.zyppUserId}</Text>
-        <Text className="text-sm opacity-70 mt-1">{user?.solanaPublicKey}</Text>
-
-        <View className="flex-row mt-4">
-          <TouchableOpacity
-            onPress={handlePickImage}
-            className="mr-3 bg-white/5 rounded-2xl p-3"
-          >
-            <Text>{uploading ? "Uploading…" : "Change photo"}</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            onPress={handleCopy}
-            className="bg-white/5 rounded-2xl p-3"
-          >
-            <Text>Copy address</Text>
-          </TouchableOpacity>
         </View>
       </View>
     </SafeAreaView>

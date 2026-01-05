@@ -13,6 +13,9 @@ import {
   unlockWithPin,
 } from "./secure-storage";
 
+// Inactivity timeout: auto-lock after 5 minutes of no activity
+const INACTIVITY_TIMEOUT_MS = 5 * 60 * 1000;
+
 interface AppLockContextValue {
   isLocked: boolean;
   lock: () => void;
@@ -21,6 +24,8 @@ interface AppLockContextValue {
   biometricAvailable: boolean;
   refreshBiometricAvailability: () => Promise<void>;
   lastBackgroundAt?: number;
+  recordActivity: () => void;
+  inactivityTimeoutMs: number;
 }
 
 const AppLockContext = React.createContext<AppLockContextValue | undefined>(
@@ -34,6 +39,21 @@ export const AppLockProvider: React.FC<React.PropsWithChildren<object>> = ({
   const [lastBackgroundAt, setLastBackgroundAt] = React.useState<number>();
   const [biometricAvailable, setBiometricAvailable] =
     React.useState<boolean>(false);
+  const inactivityTimeoutRef = React.useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
+
+  // Record user activity and reset inactivity timer
+  const recordActivity = React.useCallback(() => {
+    // Clear existing timeout
+    if (inactivityTimeoutRef.current) {
+      clearTimeout(inactivityTimeoutRef.current);
+    }
+    // Set new timeout to lock after inactivity
+    inactivityTimeoutRef.current = setTimeout(() => {
+      setIsLocked(true);
+    }, INACTIVITY_TIMEOUT_MS);
+  }, []);
 
   // Lock the app immediately (called on background)
   const lock = React.useCallback(async () => {
@@ -215,6 +235,8 @@ export const AppLockProvider: React.FC<React.PropsWithChildren<object>> = ({
       biometricAvailable,
       refreshBiometricAvailability,
       lastBackgroundAt,
+      recordActivity,
+      inactivityTimeoutMs: INACTIVITY_TIMEOUT_MS,
     }),
     [
       isLocked,
@@ -224,6 +246,7 @@ export const AppLockProvider: React.FC<React.PropsWithChildren<object>> = ({
       biometricAvailable,
       refreshBiometricAvailability,
       lastBackgroundAt,
+      recordActivity,
     ]
   );
 

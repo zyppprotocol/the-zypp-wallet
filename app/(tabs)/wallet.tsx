@@ -5,7 +5,11 @@ import {
   useColorScheme,
   View,
 } from "@/components/ui";
-import { useIsOnline } from "@/hooks/useNetworkConnection";
+import { IconSymbol } from "@/components/ui/IconSymbol";
+import {
+  useIsOnline,
+  useNetworkConnection,
+} from "@/hooks/useNetworkConnection";
 import useUser from "@/hooks/useUser";
 import { dismissProfilePrompt, updateUserProfileImage } from "@/lib/auth";
 import * as Solana from "@/lib/solana";
@@ -14,26 +18,55 @@ import { Image } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
 import { ScanLine } from "lucide-react-native";
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
   Modal,
+  RefreshControl,
   TouchableOpacity,
 } from "react-native";
 
 export const Wallet = () => {
   const colorScheme = useColorScheme();
   const router = useRouter();
+  const { isConnected, checkConnection } = useNetworkConnection();
+
   const { user, loading, refresh } = useUser();
+
+  const [refreshing, setRefreshing] = useState(false);
 
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
+
   const [balanceSol, setBalanceSol] = useState<number | null>(null);
   const [balLoading, setBalLoading] = useState(false);
   const [balanceHidden, setBalanceHidden] = useState(false);
 
   const isOnline = useIsOnline();
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      if (!isConnected) {
+        Alert.alert(
+          "Offline Mode",
+          "You are currently offline. Some data may not be up to date."
+        );
+      }
+      await refresh();
+    } catch (err) {
+      console.error("Failed to refresh:", err);
+      setError(err instanceof Error ? err : new Error(String(err)));
+      Alert.alert(
+        "Refresh Failed",
+        "Could not update your balance and transactions. Please try again."
+      );
+    } finally {
+      setRefreshing(false);
+    }
+  }, [refresh, isConnected]);
 
   useEffect(() => {
     // If hook has finished loading and no user exists, redirect to create-user
@@ -144,8 +177,53 @@ export const Wallet = () => {
   };
 
   return (
-    <SafeAreaView>
-      <ScrollView className="flex-1 pt-6 pb-10 px-6">
+    <SafeAreaView className="relative">
+      {colorScheme === "dark" ? (
+        <Image
+          source={require("@/assets/images/home-gradient.png")}
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            right: 0,
+            width: "120%",
+            height: 500,
+          }}
+          resizeMode="cover"
+        />
+      ) : (
+        <Image
+          source={require("@/assets/images/home-gradient-light.png")}
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            right: 0,
+            width: "120%",
+            height: 500,
+          }}
+          resizeMode="cover"
+        />
+      )}
+
+      <ScrollView
+        className="flex-1 pt-6 pb-10 px-6 w-full"
+        contentContainerStyle={{ paddingBottom: 100 }}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={colorScheme === "dark" ? "#ffffff" : "#000000"} // iOS
+            colors={[colorScheme === "dark" ? "#ffffff" : "#000000"]} // Android
+            progressBackgroundColor={
+              colorScheme === "dark" ? "#000000" : "#ffffff"
+            } // Android
+            title="Refreshing..." // iOS
+            titleColor="#888888"
+          />
+        }
+      >
         {/* Header */}
         <View className="flex flex-row items-center justify-between">
           <TouchableOpacity
@@ -167,6 +245,26 @@ export const Wallet = () => {
                 size={14}
                 color="white"
               /> */}
+          </TouchableOpacity>
+          <TouchableOpacity
+            className="bg-black/10 flex flex-row items-center justify-center gap-4 dark:bg-white/10 rounded-full py-3 px-8"
+            onPress={checkConnection}
+          >
+            {isConnected ? (
+              <>
+                <View className="w-3 h-3 bg-black dark:bg-primary rounded-full" />
+                <Text className="text-black dark:text-white font-semibold">
+                  Online
+                </Text>
+              </>
+            ) : (
+              <>
+                <View className="w-3 h-3 bg-red-500 rounded-full" />
+                <Text className="text-black dark:text-white font-semibold">
+                  Offline
+                </Text>
+              </>
+            )}
           </TouchableOpacity>
           <TouchableOpacity className="bg-black/5 dark:bg-white/5 rounded-2xl p-3">
             <ScanLine
@@ -283,42 +381,81 @@ export const Wallet = () => {
         </View>
 
         {/* Wallet Actions */}
-        <View className="flex flex-row items-center justify-center mt-6 gap-4 max-w-full">
-          <TouchableOpacity
-            onPress={() => router.push("/send")}
-            className="bg-black/10 dark:bg-white/10 rounded-full  py-4 items-center justify-center  px-[47px]  flex flex-row"
-          >
-            <MaterialCommunityIcons
-              name="arrow-top-right"
-              size={20}
-              color={colorScheme === "dark" ? "white" : "black"}
-              style={{ marginBottom: 0, marginRight: 8 }}
-            />
-            <Text className="text-black text-lg dark:text-white font-semibold">
-              Send
-            </Text>
-          </TouchableOpacity>
+        <View className="mt-8 gap-3">
+          {/* Primary Actions */}
+          <View className="flex flex-row gap-2 justify-center">
+            <TouchableOpacity
+              onPress={() => router.push("/send")}
+              className="flex-1 bg-black/10 dark:bg-white/10 rounded-full py-4 flex flex-row items-center justify-center"
+            >
+              <MaterialCommunityIcons
+                name="arrow-top-right"
+                size={20}
+                color={colorScheme === "dark" ? "white" : "black"}
+                style={{ marginRight: 8 }}
+              />
+              <Text className="text-black dark:text-white text-lg font-semibold">
+                Send
+              </Text>
+            </TouchableOpacity>
 
-          <TouchableOpacity
-            onPress={() => router.push("/receive")}
-            className="bg-black/10 dark:bg-white/10 rounded-full  py-4 items-center justify-center px-[47px] flex flex-row"
-          >
-            <MaterialCommunityIcons
-              name="arrow-bottom-left"
-              size={20}
-              color={colorScheme === "dark" ? "white" : "black"}
-              style={{ marginBottom: 0, marginRight: 8 }}
-            />
-            <Text className="text-black text-lg dark:text-white font-semibold">
-              Receive
-            </Text>
-          </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => router.push("/receive")}
+              className="flex-1 bg-black/10 dark:bg-white/10 rounded-full py-4 flex flex-row items-center justify-center"
+            >
+              <MaterialCommunityIcons
+                name="arrow-bottom-left"
+                size={20}
+                color={colorScheme === "dark" ? "white" : "black"}
+                style={{ marginRight: 8 }}
+              />
+              <Text className="text-black dark:text-white text-lg font-semibold">
+                Receive
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Secondary Actions */}
+          <View className="flex flex-row gap-2 justify-center">
+            <TouchableOpacity
+              onPress={() => router.push("/send")}
+              className="flex-1 bg-black/10 dark:bg-white/10 rounded-full py-4 flex flex-row items-center justify-center"
+            >
+              <IconSymbol
+                name="plus.circle"
+                size={20}
+                color={colorScheme === "dark" ? "white" : "black"}
+                style={{ marginRight: 8 }}
+              />
+              <Text className="text-black dark:text-white text-lg font-semibold">
+                Top-up
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={() => router.push("/receive")}
+              className="flex-1 bg-black/10 dark:bg-white/10 rounded-full py-4 flex flex-row items-center justify-center"
+            >
+              <IconSymbol
+                name="arrow.up.left.arrow.down.right"
+                size={20}
+                color={colorScheme === "dark" ? "white" : "black"}
+                style={{ marginRight: 8 }}
+              />
+              <Text className="text-black dark:text-white text-lg font-semibold">
+                Redeem
+              </Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* Transaction History */}
         <View className="mt-10">
-          <View className="mb-4">
-            <Text className="text-xl font-semibold">Recent Transactions</Text>
+          <View className="mb-4 flex flex-row items-center justify-between">
+            <Text className="text-xl font-semibold">Activity</Text>
+            <TouchableOpacity onPress={() => router.push("/activity" as any)}>
+              <Text className="font-semibold opacity-70">See all</Text>
+            </TouchableOpacity>
           </View>
           <View className="flex flex-col mt-10 items-center justify-center">
             <Image

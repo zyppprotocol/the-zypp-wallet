@@ -13,7 +13,12 @@ import { ErrorBoundary } from "@/components/error-boundary";
 import { LockScreen } from "@/components/LockScreen";
 import { ThemeProvider as UIThemeProvider } from "@/components/ui/theme";
 import { useColorScheme } from "@/hooks/useColorScheme";
+import {
+  startBLEAdvertising,
+  stopBLEAdvertising,
+} from "@/lib/solana/receive-listener";
 import { AppLockProvider } from "@/lib/storage/app-lock";
+import { configureReanimatedLogger, ReanimatedLogLevel } from "react-native-reanimated";
 
 // Prevent the splash screen from auto-hiding
 SplashScreen.preventAutoHideAsync();
@@ -32,12 +37,31 @@ export default function RootLayout() {
     bold_italic: require("../assets/fonts/Instrument_Sans/InstrumentSans-BoldItalic.ttf"),
   });
 
+  configureReanimatedLogger({
+  level: ReanimatedLogLevel.warn,
+  strict: false, // Reanimated runs in strict mode by default
+});
+
   useEffect(() => {
     if (loaded) {
       // Hide the splash screen after fonts are loaded
       SplashScreen.hideAsync();
+
+      // Start BLE advertising when app initializes so user is discoverable
+      startBLEAdvertising().catch((error) => {
+        console.error("Failed to start BLE advertising on app init:", error);
+      });
     }
   }, [loaded]);
+
+  // Cleanup BLE advertising when app unmounts
+  useEffect(() => {
+    return () => {
+      stopBLEAdvertising().catch((error) => {
+        console.error("Failed to stop BLE advertising on app unmount:", error);
+      });
+    };
+  }, []);
 
   if (!loaded) {
     // Keep showing splash screen while loading
@@ -49,8 +73,8 @@ export default function RootLayout() {
       <GestureHandlerRootView style={{ flex: 1 }}>
         <BottomSheetModalProvider>
           <AppLockProvider>
-            <UIThemeProvider>
-              <ActivityDetector>
+            <ActivityDetector>
+              <UIThemeProvider>
                 <Stack>
                   <Stack.Screen name="index" options={{ headerShown: false }} />
                   <Stack.Screen
@@ -63,6 +87,10 @@ export default function RootLayout() {
                   />
                   <Stack.Screen
                     name="settings"
+                    options={{ headerShown: false }}
+                  />
+                  <Stack.Screen
+                    name="success"
                     options={{ headerShown: false }}
                   />
                   <Stack.Screen name="help" options={{ headerShown: false }} />
@@ -81,11 +109,11 @@ export default function RootLayout() {
                   <Stack.Screen name="+not-found" />
                 </Stack>
                 <StatusBar style="auto" />
-              </ActivityDetector>
+              </UIThemeProvider>
 
               {/* Lock screen overlay (renders when app is locked) */}
               <LockScreen />
-            </UIThemeProvider>
+            </ActivityDetector>
           </AppLockProvider>
         </BottomSheetModalProvider>
       </GestureHandlerRootView>

@@ -14,54 +14,7 @@
  */
 
 import * as SecureStore from "expo-secure-store";
-
-// ============================================================================
-// TYPES
-// ============================================================================
-
-export type TransactionStatus =
-  | "pending" // Waiting to be signed
-  | "signed" // Signed locally, awaiting broadcast
-  | "broadcasting" // Attempt to push to chain
-  | "confirmed" // On-chain confirmed
-  | "failed" // Failed to broadcast or confirm
-  | "expired"; // Too old to broadcast
-
-export interface TransactionIntent {
-  id: string; // UUID
-  type: "payment" | "swap" | "nft_transfer";
-
-  // Transaction details
-  sender: string; // Public key (base58)
-  recipient: string; // Public key (base58)
-  amount: bigint;
-  token: string; // Mint address
-
-  // Encryption & signing
-  encryptedPayload: string; // base64 encrypted tx data
-  signature: string; // base64 encoded signature
-  nonce: string; // base64 nonce used in encryption
-
-  // Metadata
-  status: TransactionStatus;
-  createdAt: number; // Unix timestamp
-  expiresAt: number; // Unix timestamp (expires after 5 minutes)
-  broadcastAttempts: number;
-  lastBroadcastAt?: number;
-
-  // Settlement (after confirmed)
-  onchainSignature?: string; // Signature from Solana
-  blockHash?: string;
-  slot?: number;
-
-  // User info
-  memo?: string;
-}
-
-export interface OfflineTransaction {
-  intent: TransactionIntent;
-  rawTransaction: Uint8Array; // Raw tx bytes (for recovery)
-}
+import { TransactionIntent } from "./types";
 
 // ============================================================================
 // CONSTANTS
@@ -84,20 +37,6 @@ function generateUUID(): string {
     const v = c === "x" ? r : (r & 0x3) | 0x8;
     return v.toString(16);
   });
-}
-
-/**
- * Convert Uint8Array to base64
- */
-function bytesToBase64(bytes: Uint8Array): string {
-  return Buffer.from(bytes).toString("base64");
-}
-
-/**
- * Convert base64 to Uint8Array
- */
-function base64ToBytes(b64: string): Uint8Array {
-  return new Uint8Array(Buffer.from(b64, "base64"));
 }
 
 // ============================================================================
@@ -136,6 +75,8 @@ export async function queueOfflineTransaction(params: {
     expiresAt: now + TX_EXPIRY_WINDOW,
     broadcastAttempts: 0,
     memo: params.memo,
+    intentVersion: 1,
+    connectivity: "bluetooth", // default connectivity method
   };
 
   // Store transaction
@@ -275,6 +216,28 @@ export async function markAsFailed(id: string, reason: string): Promise<void> {
   );
 
   // Keep in pending for manual retry
+}
+
+/**
+ * Mark transaction as broadcasting (in-flight to RPC)
+ */
+export async function markAsBroadcasting(id: string): Promise<void> {
+  const tx = await getTransaction(id);
+  if (!tx) {
+    throw new Error(`Transaction ${id} not found`);
+  }
+
+  tx.status = "broadcasting";
+  tx.broadcastAttempts = (tx.broadcastAttempts || 0) + 1;
+  tx.lastBroadcastAt = Date.now();
+
+  await SecureStore.setItemAsync(
+    `${STORAGE_KEY_PREFIX}${id}`,
+    JSON.stringify(tx),
+    {
+      keychainAccessible: SecureStore.WHEN_UNLOCKED,
+    }
+  );
 }
 
 /**
