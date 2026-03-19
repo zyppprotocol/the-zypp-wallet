@@ -4,6 +4,7 @@ import {
   type SafeAreaViewProps as RNSafeAreaViewProps 
 } from "react-native-safe-area-context";
 import { cn } from "./utils/cn";
+import { Platform } from "react-native";
 
 interface SafeAreaViewProps extends RNSafeAreaViewProps {
   className?: string;
@@ -18,7 +19,7 @@ const SafeAreaView = React.forwardRef<
       ref={ref}
       edges={edges}
       mode={mode}
-      className={cn("flex-1 bg-background", className)}
+      className={cn("flex-1 bg-background", className, Platform.OS === "android" && "pt-3")}
       {...props}
     />
   );

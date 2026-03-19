@@ -12,7 +12,7 @@ export interface ZyppUser {
     createdAt: number;
   };
   settings: {
-    allowOfflineTransactions: true;
+    allowOfflineTransactions: boolean;
     autoSyncOnReconnect: boolean;
     defaultPrivacyMode: "standard" | "private";
     // Auto-lock timeout in milliseconds. 0 = disabled. Defaults to 5 minutes.
@@ -35,6 +35,15 @@ export interface ZyppUser {
   profileImageUploadedAt?: number | null;
   profilePromptDismissedAt?: number | null;
   status: "active" | "locked" | "suspended";
+  externalWalletAddress?: string | null;
+  // Subscription information
+  subscription: {
+    tier: "basic" | "premium";
+    startDate: number;
+    endDate?: number; // For future expiry support
+    transactionCount: number; // Current month count
+    lastResetDate: number; // When transaction count was last reset
+  };
 }
 
 export interface KeyPair {
@@ -75,7 +84,16 @@ export type TransactionStatus =
   | "confirmed"
   | "failed"
   | "expired";
-export type TransactionType = "payment" | "swap" | "nft_transfer";
+export type TransactionType = 
+  | "payment" 
+  | "swap" 
+  | "nft_transfer"
+  | "yield_deposit"
+  | "yield_withdraw"
+  | "lend"
+  | "borrow"
+  | "repay"
+  | "swap_intent";
 export type ConnectivityMethod = "bluetooth" | "nfc" | "mesh" | "unknown";
 
 export interface TransactionIntent {
@@ -99,6 +117,14 @@ export interface TransactionIntent {
   blockHash?: string;
   slot?: number;
   memo?: string;
+  // Subscription and fee fields
+  feeAmount?: bigint; // Fee in lamports
+  feePercentage?: number; // 0.5% or 0.1%
+  feeCapped?: boolean; // Whether fee was capped
+  subscriptionTier?: "basic" | "premium"; // Tier at time of creation
+  // DeFi fields
+  defiProtocol?: string; // e.g., "jupiter", "solend", "marginfi"
+  defiAction?: string; // e.g., "swap", "deposit", "withdraw"
 }
 
 export interface OfflineTransaction {

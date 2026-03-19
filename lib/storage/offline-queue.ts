@@ -14,7 +14,11 @@
  */
 
 import * as SecureStore from "expo-secure-store";
+import { log } from "../utils/logger";
 import { TransactionIntent } from "./types";
+import { canCreateTransaction, incrementTransactionCount } from "../subscription/subscription-manager";
+import { getSubscriptionTier } from "../subscription/subscription-manager";
+import { calculateBroadcastFee } from "../subscription/fee-calculator";
 
 // ============================================================================
 // CONSTANTS
@@ -45,9 +49,10 @@ function generateUUID(): string {
 
 /**
  * Queue a new offline transaction
+ * Checks subscription limits and calculates fees before queuing
  */
 export async function queueOfflineTransaction(params: {
-  type: "payment" | "swap" | "nft_transfer";
+  type: "payment" | "swap" | "nft_transfer" | "yield_deposit" | "yield_withdraw" | "lend" | "borrow" | "repay" | "swap_intent";
   sender: string;
   recipient: string;
   amount: bigint;
@@ -56,7 +61,19 @@ export async function queueOfflineTransaction(params: {
   signature: string; // Already signed
   nonce: string;
   memo?: string;
+  defiProtocol?: string;
+  defiAction?: string;
 }): Promise<string> {
+  // Check subscription limits before queuing
+  const canCreate = await canCreateTransaction();
+  if (!canCreate.allowed) {
+    throw new Error(canCreate.reason || "Transaction limit exceeded");
+  }
+
+  // Get subscription tier and calculate fee
+  const tier = await getSubscriptionTier();
+  const feeInfo = await calculateBroadcastFee(params.amount, tier, params.token);
+
   const transactionId = generateUUID();
   const now = Date.now();
 
@@ -77,6 +94,14 @@ export async function queueOfflineTransaction(params: {
     memo: params.memo,
     intentVersion: 1,
     connectivity: "bluetooth", // default connectivity method
+    // Subscription and fee metadata
+    feeAmount: feeInfo.feeAmount,
+    feePercentage: feeInfo.feePercentage,
+    feeCapped: feeInfo.feeCapped,
+    subscriptionTier: tier,
+    // DeFi metadata
+    defiProtocol: params.defiProtocol,
+    defiAction: params.defiAction,
   };
 
   // Store transaction
@@ -90,6 +115,17 @@ export async function queueOfflineTransaction(params: {
 
   // Add to pending list
   await addToPendingList(transactionId);
+
+  // Increment transaction count
+  await incrementTransactionCount();
+
+  log.info("Transaction queued with fee", {
+    transactionId,
+    tier,
+    feeAmount: feeInfo.feeAmount.toString(),
+    feeUsd: feeInfo.feeUsd.toFixed(2),
+    feeCapped: feeInfo.feeCapped,
+  });
 
   return transactionId;
 }
@@ -120,7 +156,7 @@ export async function getPendingTransactions(): Promise<TransactionIntent[]> {
 
     return transactions;
   } catch (error) {
-    console.error("Error getting pending transactions:", error);
+    log.error("Error getting pending transactions", error);
     return [];
   }
 }
@@ -138,7 +174,7 @@ export async function getTransaction(
     }
     return JSON.parse(txJson);
   } catch (error) {
-    console.error("Error retrieving transaction:", error);
+    log.error("Error retrieving transaction", error, { transactionId: id });
     return null;
   }
 }
@@ -306,7 +342,7 @@ export async function deleteTransaction(id: string): Promise<void> {
     await SecureStore.deleteItemAsync(`${STORAGE_KEY_PREFIX}${id}`);
     await removeFromPendingList(id);
   } catch (error) {
-    console.error("Error deleting transaction:", error);
+    log.error("Error deleting transaction", error, { transactionId: id });
   }
 }
 
@@ -333,7 +369,7 @@ async function addToPendingList(id: string): Promise<void> {
       );
     }
   } catch (error) {
-    console.error("Error adding to pending list:", error);
+    log.error("Error adding to pending list", error, { transactionId: id });
   }
 }
 
@@ -356,7 +392,7 @@ async function removeFromPendingList(id: string): Promise<void> {
       }
     );
   } catch (error) {
-    console.error("Error removing from pending list:", error);
+    log.error("Error removing from pending list", error, { transactionId: id });
   }
 }
 

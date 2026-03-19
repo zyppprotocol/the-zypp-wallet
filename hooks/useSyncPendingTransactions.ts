@@ -7,7 +7,7 @@
 
 import { syncPendingTransactions } from "@/lib/solana/transaction-broadcaster";
 import { useEffect, useRef, useState } from "react";
-import { useNetworkConnection } from "./useNetworkConnection";
+import { useIsOnline } from "./useNetworkConnection";
 
 interface SyncStatus {
   syncing: boolean;
@@ -19,7 +19,7 @@ interface SyncStatus {
 }
 
 export function useSyncPendingTransactions() {
-  const { isConnected } = useNetworkConnection();
+  const isConnected = useIsOnline();
   const [syncStatus, setSyncStatus] = useState<SyncStatus>({
     syncing: false,
     confirmed: 0,

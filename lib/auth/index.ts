@@ -15,6 +15,8 @@ import * as Solana from "../solana";
 import { checkBiometricAvailability } from "../storage/biometric";
 import { SecureStorage } from "../storage/secure-storage";
 import type { ZyppUser } from "../storage/types";
+import { SyncManager } from "../sync/sync-manager";
+import { log } from "../utils/logger";
 
 // Generate minimal id without external dependency
 function generateId(): string {
@@ -101,6 +103,7 @@ export async function createUser(opts: CreateUserOptions): Promise<ZyppUser> {
   }
 
   // Build ZyppUser object
+  const now = Date.now();
   const user: ZyppUser = {
     id: generateId(),
     zyppUserId: zyppUserId,
@@ -113,7 +116,7 @@ export async function createUser(opts: CreateUserOptions): Promise<ZyppUser> {
     secureStorage: {
       provider: "expo-secure-store",
       keyAlias: "zypp_key_data",
-      createdAt: Date.now(),
+      createdAt: now,
     },
     settings: {
       allowOfflineTransactions: true,
@@ -128,7 +131,7 @@ export async function createUser(opts: CreateUserOptions): Promise<ZyppUser> {
     device: {
       deviceId: generateId(),
       platform: Platform.OS === "ios" ? "ios" : "android",
-      lastUnlockedAt: Date.now(),
+      lastUnlockedAt: now,
       lastSyncedAt: undefined,
     },
     // Profile fields are intentionally null at creation
@@ -137,10 +140,22 @@ export async function createUser(opts: CreateUserOptions): Promise<ZyppUser> {
     profilePromptDismissedAt: null,
 
     status: "active",
+    // Initialize subscription with basic tier
+    subscription: {
+      tier: "basic",
+      startDate: now,
+      transactionCount: 0,
+      lastResetDate: now,
+    },
   };
 
   // Persist the user object in secure storage
   await SecureStorage.setUser(user);
+
+  // Trigger cloud sync (background)
+  SyncManager.getInstance().syncUser().catch((err) => 
+    log.error("Failed to sync user after creation", err)
+  );
 
   return user;
 }
@@ -173,6 +188,7 @@ export async function finalizeUser(zyppUserId: string): Promise<ZyppUser> {
       pinEnabled: true,
     }));
 
+    const now = Date.now();
     const user: ZyppUser = {
       id: generateId(),
       zyppUserId: zyppUserId,
@@ -184,7 +200,7 @@ export async function finalizeUser(zyppUserId: string): Promise<ZyppUser> {
       secureStorage: {
         provider: "expo-secure-store",
         keyAlias: "zypp_key_data",
-        createdAt: Date.now(),
+        createdAt: now,
       },
       settings: {
         allowOfflineTransactions: true,
@@ -199,7 +215,7 @@ export async function finalizeUser(zyppUserId: string): Promise<ZyppUser> {
       device: {
         deviceId: generateId(),
         platform: Platform.OS === "ios" ? "ios" : "android",
-        lastUnlockedAt: Date.now(),
+        lastUnlockedAt: now,
         lastSyncedAt: undefined,
       },
       // Profile fields are intentionally null at finalization too
@@ -208,12 +224,25 @@ export async function finalizeUser(zyppUserId: string): Promise<ZyppUser> {
       profilePromptDismissedAt: null,
 
       status: "active",
+      // Initialize subscription with basic tier
+      subscription: {
+        tier: "basic",
+        startDate: now,
+        transactionCount: 0,
+        lastResetDate: now,
+      },
     };
 
     await SecureStorage.setUser(user);
+    
+    // Trigger cloud sync (background)
+    SyncManager.getInstance().syncUser().catch((err) => 
+      log.error("Failed to sync user after finalization", err)
+    );
+
     return user;
   } catch (err) {
-    console.warn(err);
+    log.warn("Failed to finalize user", err);
     throw new Error("Failed to finalize user: no wallet found or other error");
   }
 }
@@ -245,6 +274,33 @@ export async function updateUserProfileImage(
 }
 
 /**
+ * Update the user's Zypp handle (zyppUserId).
+ */
+export async function updateZyppUserId(newId: string): Promise<ZyppUser> {
+  const user = await SecureStorage.getUser();
+  if (!user) throw new Error("No user found");
+
+  // Basic validation (allow alphanumeric, underscore, and dot for .zypp suffix)
+  if (newId.length < 3) throw new Error("Handle too short");
+  if (!/^[a-zA-Z0-9_.]+$/.test(newId))
+    throw new Error("Handle contains invalid characters");
+
+  const updated: ZyppUser = {
+    ...user,
+    zyppUserId: newId,
+  };
+
+  await SecureStorage.setUser(updated);
+
+  // Trigger cloud sync
+  SyncManager.getInstance().syncUser().catch((err) => 
+    log.error("Failed to sync user after update", err)
+  );
+
+  return updated;
+}
+
+/**
  * Dismiss the profile upload prompt for the current user (won't show modal again)
  */
 export async function dismissProfilePrompt(): Promise<ZyppUser> {
@@ -261,12 +317,41 @@ export async function dismissProfilePrompt(): Promise<ZyppUser> {
 }
 
 /**
+ * Update the current user's external wallet address (connected for top-up/redeem).
+ */
+export async function setExternalWalletAddress(
+  address: string | null
+): Promise<ZyppUser> {
+  const user = await SecureStorage.getUser();
+  if (!user) throw new Error("No user found");
+
+  const updated: ZyppUser = {
+    ...user,
+    externalWalletAddress: address,
+  };
+
+  await SecureStorage.setUser(updated);
+  return updated;
+}
+
+/**
  * Delete stored user and wipe wallet
  */
 export async function deleteUser(): Promise<void> {
   await SecureStorage.deleteUser();
   // Also wipe wallet (irreversible)
   await SecureStorage.wipeWallet();
+}
+
+/**
+ * Recover a user profile from the cloud.
+ * This fetches metadata (username, settings, balances) but DOES NOT recover the private key.
+ * The user must import their mnemonic separately to sign transactions.
+ */
+export async function recoverUser(zyppUserId: string): Promise<ZyppUser> {
+  const recovered = await SyncManager.getInstance().recoverProfile(zyppUserId);
+  await SecureStorage.setUser(recovered);
+  return recovered;
 }
 
 /**
@@ -307,4 +392,8 @@ export default {
   getUser,
   deleteUser,
   isUserComplete,
+  setExternalWalletAddress,
+  updateUserProfileImage,
+  recoverUser,
+  updateZyppUserId,
 };

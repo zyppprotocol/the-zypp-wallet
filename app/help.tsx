@@ -17,7 +17,7 @@ export default function Help() {
     <SafeAreaView className="relative flex-1">
       {colorScheme === "dark" ? (
         <Image
-          source={require("@/assets/images/home-gradient.png")}
+          source={require("@/assets/images/home-gradient-dark.png")}
           style={{
             position: "absolute",
             top: 0,

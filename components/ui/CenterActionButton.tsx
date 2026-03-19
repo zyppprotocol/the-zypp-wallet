@@ -1,12 +1,23 @@
 import { IconSymbol } from "@/components/ui/IconSymbol";
+import { Colors } from "@/constants/Colors";
+import { useColorScheme } from "@/hooks/useColorScheme";
 import { useRouter } from "expo-router";
 import React from "react";
-import { Animated, StyleSheet, TouchableOpacity, View } from "react-native";
+import {
+  Animated,
+  Platform,
+  StyleSheet,
+  TouchableOpacity,
+  View,
+} from "react-native";
 import { useBottomTabOverflow } from "./TabBarBackground";
 
 export default function CenterActionButton() {
   const router = useRouter();
   const bottom = useBottomTabOverflow();
+  const colorScheme = useColorScheme();
+  const isDark = colorScheme === "dark";
+  const tintColor = Colors[colorScheme ?? "light"].tint;
   const scale = React.useRef(new Animated.Value(1)).current;
 
   function onPressIn() {
@@ -25,6 +36,11 @@ export default function CenterActionButton() {
     router.push("add");
   }
 
+  // On Android, hide the center button - use regular tab buttons instead
+  if (Platform.OS === "android") {
+    return null;
+  }
+
   return (
     <View style={[styles.container, { bottom: 14 + bottom }]}>
       <Animated.View style={[styles.shadow, { transform: [{ scale }] }]}>
@@ -35,9 +51,17 @@ export default function CenterActionButton() {
           activeOpacity={0.9}
           accessibilityRole="button"
           accessibilityLabel="Add"
-          style={styles.button}
+          style={[
+            styles.button,
+            {
+              backgroundColor: tintColor,
+              borderColor: isDark
+                ? "rgba(255,255,255,0.08)"
+                : "rgba(0,0,0,0.06)",
+            },
+          ]}
         >
-          <IconSymbol name="plus" size={26} color="#001" />
+          <IconSymbol name="plus" size={26} color={isDark ? "#000" : "#fff"} />
         </TouchableOpacity>
       </Animated.View>
     </View>

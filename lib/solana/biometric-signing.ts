@@ -20,6 +20,7 @@
 import * as nacl from "tweetnacl";
 import { authenticateWithBiometric } from "../storage/biometric";
 import { unlockWithPin } from "../storage/secure-storage";
+import { log } from "../utils/logger";
 import type { TransactionIntent } from "../storage/types";
 import { encryptIntent } from "./intent-encryption";
 
@@ -65,7 +66,7 @@ export async function signIntentWithBiometric(
     // ========================================================================
     // STEP 1: ATTEMPT BIOMETRIC AUTHENTICATION
     // ========================================================================
-    console.log("Attempting biometric authentication...");
+    log.info("Attempting biometric authentication...");
 
     const bioResult = await authenticateWithBiometric(biometricReason);
 
@@ -74,14 +75,18 @@ export async function signIntentWithBiometric(
     // ========================================================================
     if (bioResult.success) {
       // Biometric succeeded
-      console.log(
-        `Biometric authenticated (${bioResult.biometricUsed || "unknown"})`
+      log.info(
+        `Biometric authenticated`,
+        undefined,
+        { biometricUsed: bioResult.biometricUsed || "unknown" }
       );
       return await signWithBiometricPin(unsignedIntent, startTime);
     } else {
       // Biometric failed or unavailable - fallback to PIN
-      console.log(
-        `Biometric unavailable or failed: ${bioResult.error}. Falling back to PIN.`
+      log.warn(
+        `Biometric unavailable or failed: ${bioResult.error}. Falling back to PIN.`,
+        undefined,
+        { error: bioResult.error }
       );
       return {
         success: false,
@@ -90,7 +95,7 @@ export async function signIntentWithBiometric(
       };
     }
   } catch (err) {
-    console.error("Signing error:", err);
+    log.error("Signing error", err);
     return {
       success: false,
       error: `Signing failed: ${err}`,
@@ -125,7 +130,7 @@ async function signWithBiometricPin(
     // ====================================================================
     // STEP 2: DECRYPT PRIVATE KEY (MINIMAL WINDOW)
     // ====================================================================
-    console.log("Decrypting private key with biometric PIN...");
+    log.debug("Decrypting private key with biometric PIN...");
 
     privateKey = await unlockWithPin(biometricPin);
 
@@ -140,9 +145,19 @@ async function signWithBiometricPin(
     // ====================================================================
     // STEP 3: SIGN INTENT
     // ====================================================================
-    console.log("Signing intent...");
+    log.debug("Signing intent...");
 
-    const intentBytes = serializeIntentForSigning(unsignedIntent);
+    // Generate random nonce for replay protection (9.4: Nonce Generation)
+    const nonceBytes = nacl.randomBytes(32);
+    const nonceHex = Buffer.from(nonceBytes).toString('hex');
+    
+    // Create intent copy with nonce
+    const intentWithNonce = {
+      ...unsignedIntent,
+      nonce: nonceHex,
+    };
+
+    const intentBytes = serializeIntentForSigning(intentWithNonce);
     const signature = nacl.sign.detached(intentBytes, privateKey);
 
     if (!signature) {
@@ -156,7 +171,7 @@ async function signWithBiometricPin(
     // ====================================================================
     // STEP 4: WIPE PRIVATE KEY IMMEDIATELY
     // ====================================================================
-    console.log("Wiping private key from memory...");
+    log.debug("Wiping private key from memory...");
     if (privateKey && privateKey.length > 0) {
       privateKey.fill(0);
     }
@@ -168,6 +183,7 @@ async function signWithBiometricPin(
     const signedIntent: TransactionIntent = {
       ...unsignedIntent,
       status: "signed",
+      nonce: nonceHex, // Include the generated nonce
       signature: bytesToBase64(new Uint8Array(signature)),
       lastBroadcastAt: Date.now(),
     };
@@ -175,11 +191,13 @@ async function signWithBiometricPin(
     // ====================================================================
     // STEP 6: ENCRYPT SIGNED PAYLOAD
     // ====================================================================
-    console.log("Encrypting signed intent...");
+    log.debug("Encrypting signed intent...");
     const encryptedPayload = await encryptIntent(signedIntent);
     signedIntent.encryptedPayload = encryptedPayload;
 
-    console.log(`Intent signed successfully (${Date.now() - startTime}ms)`);
+    log.info(`Intent signed successfully`, undefined, {
+      signingTime: Date.now() - startTime,
+    });
 
     return {
       success: true,
@@ -188,7 +206,7 @@ async function signWithBiometricPin(
     };
   } finally {
     if (privateKey && privateKey.length > 0) {
-      console.warn("Force-wiping private key in finally block");
+      log.warn("Force-wiping private key in finally block");
       privateKey.fill(0);
     }
   }
@@ -223,7 +241,7 @@ export async function signIntentWithPin(
     // ====================================================================
     // STEP 2: DECRYPT PRIVATE KEY
     // ====================================================================
-    console.log("Decrypting private key with PIN...");
+    log.debug("Decrypting private key with PIN...");
 
     let privateKey: Uint8Array | null = null;
 
@@ -241,9 +259,18 @@ export async function signIntentWithPin(
       // ====================================================================
       // STEP 3: SIGN INTENT
       // ====================================================================
-      console.log("Signing intent with PIN...");
+      log.debug("Signing intent with PIN...");
 
-      const intentBytes = serializeIntentForSigning(unsignedIntent);
+      // Generate random nonce for replay protection
+      const nonceBytes = nacl.randomBytes(32);
+      const nonceHex = Buffer.from(nonceBytes).toString('hex');
+
+      const intentWithNonce = {
+        ...unsignedIntent,
+        nonce: nonceHex,
+      };
+
+      const intentBytes = serializeIntentForSigning(intentWithNonce);
       const signature = nacl.sign.detached(intentBytes, privateKey);
 
       if (!signature) {
@@ -268,6 +295,7 @@ export async function signIntentWithPin(
       const signedIntent: TransactionIntent = {
         ...unsignedIntent,
         status: "signed",
+        nonce: nonceHex,
         signature: bytesToBase64(new Uint8Array(signature)),
         lastBroadcastAt: Date.now(),
       };
@@ -289,7 +317,7 @@ export async function signIntentWithPin(
       }
     }
   } catch (err) {
-    console.error("PIN signing error:", err);
+    log.error("PIN signing error", err);
     return {
       success: false,
       error: `PIN signing failed: ${err}`,
@@ -316,6 +344,7 @@ function serializeIntentForSigning(intent: TransactionIntent): Uint8Array {
     token: intent.token,
     createdAt: intent.createdAt,
     id: intent.id,
+    nonce: intent.nonce, // Crucial for replay protection
   };
 
   const jsonStr = JSON.stringify(canonical);
@@ -334,7 +363,7 @@ async function getStoredBiometricPin(): Promise<string | null> {
     const pin = await getBiometricPin();
     return pin;
   } catch (err) {
-    console.warn("Failed to retrieve biometric PIN:", err);
+    log.warn("Failed to retrieve biometric PIN", err);
     return null;
   }
 }

@@ -76,7 +76,7 @@ export default function Activity() {
       case "broadcasting":
         return "#3b82f6"; // blue
       case "signed":
-        return "#f59e0b"; // amber
+        return "#f59e0b"; // amber (Syncing)
       case "pending":
         return "#8b5cf6"; // purple
       case "failed":
@@ -88,7 +88,20 @@ export default function Activity() {
   };
 
   const getStatusLabel = (status: TransactionStatus): string => {
-    return status.charAt(0).toUpperCase() + status.slice(1);
+    switch (status) {
+      case "signed":
+        return "Syncing...";
+      case "broadcasting":
+        return "Broadcasting...";
+      case "confirmed":
+        return "Confirmed";
+      case "failed":
+        return "Failed";
+      case "expired":
+        return "Expired";
+      default:
+        return status.charAt(0).toUpperCase() + status.slice(1);
+    }
   };
 
   const renderTransaction = ({ item }: { item: TransactionIntent }) => {
@@ -130,13 +143,22 @@ export default function Activity() {
             <View
               style={{
                 backgroundColor: getStatusColor(item.status),
-                opacity: 0.2,
+                opacity: 0.15,
               }}
-              className="mt-1 rounded-full px-2 py-1"
+              className="mt-1 rounded-full px-2 py-1 flex-row items-center"
             >
+              {(item.status === "signed" || item.status === "broadcasting") && (
+                <View className="mr-1">
+                  <ActivityIndicator
+                    size="small"
+                    color={getStatusColor(item.status)}
+                    scale={0.5}
+                  />
+                </View>
+              )}
               <Text
                 style={{ color: getStatusColor(item.status) }}
-                className="text-xs font-semibold"
+                className="text-[10px] font-bold uppercase tracking-wider"
               >
                 {getStatusLabel(item.status)}
               </Text>
@@ -158,7 +180,7 @@ export default function Activity() {
     <SafeAreaView className="relative flex-1">
       {colorScheme === "dark" ? (
         <Image
-          source={require("@/assets/images/home-gradient.png")}
+          source={require("@/assets/images/home-gradient-dark.png")}
           style={{
             position: "absolute",
             top: 0,

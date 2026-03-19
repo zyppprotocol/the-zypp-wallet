@@ -7,6 +7,7 @@ import { IconSymbol } from "@/components/ui/IconSymbol";
 import TabBarBackground from "@/components/ui/TabBarBackground";
 import { Colors } from "@/constants/Colors";
 import { useColorScheme } from "@/hooks/useColorScheme";
+import { MaterialIcons } from "@expo/vector-icons";
 
 export default function TabLayout() {
   const colorScheme = useColorScheme();
@@ -16,7 +17,6 @@ export default function TabLayout() {
 
   return (
     <Tabs
-      // tabBar={(props: any) => <TabBar {...props} />}
       screenOptions={{
         tabBarActiveTintColor: Colors[colorScheme ?? "light"].tint,
         tabBarInactiveTintColor: inactiveColor,
@@ -42,7 +42,7 @@ export default function TabLayout() {
             backgroundColor: Colors[colorScheme ?? "light"].background,
             shadowOpacity: 0,
             elevation: 0,
-            paddingTop: 6,
+            paddingBottom: 4,
           },
         }),
       }}
@@ -52,9 +52,9 @@ export default function TabLayout() {
         options={{
           title: "Wallet",
           tabBarIcon: ({ color, focused }) => (
-            <IconSymbol
+            <MaterialIcons
               size={focused ? 26 : 24}
-              name="wallet.bifold.fill"
+              name="wallet"
               color={color}
             />
           ),

@@ -1,6 +1,7 @@
 import * as ScreenCapture from "expo-screen-capture";
 import React from "react";
 import { AppState, AppStateStatus } from "react-native";
+import { log } from "../utils/logger";
 import {
   authenticateWithBiometric,
   checkBiometricAvailability,
@@ -15,6 +16,10 @@ import {
 
 // Inactivity timeout: auto-lock after 5 minutes of no activity
 const INACTIVITY_TIMEOUT_MS = 5 * 60 * 1000;
+
+// Dev flag: set to true to disable lockscreen during development
+// In production, this should ALWAYS be false.
+const DEV_DISABLE_LOCKSCREEN = false;
 
 interface AppLockContextValue {
   isLocked: boolean;
@@ -35,7 +40,9 @@ const AppLockContext = React.createContext<AppLockContextValue | undefined>(
 export const AppLockProvider: React.FC<React.PropsWithChildren<object>> = ({
   children,
 }) => {
-  const [isLocked, setIsLocked] = React.useState<boolean>(true);
+  const [isLocked, setIsLocked] = React.useState<boolean>(
+    DEV_DISABLE_LOCKSCREEN ? false : true
+  );
   const [lastBackgroundAt, setLastBackgroundAt] = React.useState<number>();
   const [biometricAvailable, setBiometricAvailable] =
     React.useState<boolean>(false);
@@ -162,9 +169,19 @@ export const AppLockProvider: React.FC<React.PropsWithChildren<object>> = ({
     try {
       const status = await checkBiometricAvailability();
       const cfg = await getWalletConfig();
-      setBiometricAvailable(
-        status.available && status.enrolled && cfg.biometricEnabled
+      const available =
+        status.available && status.enrolled && cfg.biometricEnabled;
+      log.debug(
+        "Biometric availability check",
+        undefined,
+        {
+          available: status.available,
+          enrolled: status.enrolled,
+          biometricEnabled: cfg.biometricEnabled,
+          result: available,
+        }
       );
+      setBiometricAvailable(available);
     } catch {
       setBiometricAvailable(false);
     }
@@ -178,9 +195,19 @@ export const AppLockProvider: React.FC<React.PropsWithChildren<object>> = ({
         const status = await checkBiometricAvailability();
         const cfg = await getWalletConfig();
         if (!mounted) return;
-        setBiometricAvailable(
-          status.available && status.enrolled && cfg.biometricEnabled
+        const available =
+          status.available && status.enrolled && cfg.biometricEnabled;
+        log.debug(
+          "Initial biometric availability",
+          undefined,
+          {
+            available: status.available,
+            enrolled: status.enrolled,
+            biometricEnabled: cfg.biometricEnabled,
+            result: available,
+          }
         );
+        setBiometricAvailable(available);
       } catch {
         if (!mounted) return;
         setBiometricAvailable(false);
@@ -202,11 +229,13 @@ export const AppLockProvider: React.FC<React.PropsWithChildren<object>> = ({
         // Also check whether a ZyppUser object exists (we treat wallet+user as a session)
         const u = await getUser();
         if (!mounted) return;
-        // Lock only if both wallet and user exist
-        setIsLocked(initialized && !!u ? true : false);
+        // Lock only if both wallet and user exist (unless dev disabled it)
+        setIsLocked(
+          DEV_DISABLE_LOCKSCREEN ? false : initialized && !!u ? true : false
+        );
       } catch {
         if (!mounted) return;
-        setIsLocked(false);
+        setIsLocked(DEV_DISABLE_LOCKSCREEN ? false : false);
       }
     })();
     return () => {

@@ -12,6 +12,7 @@
  */
 
 import { Buffer } from "buffer";
+import { log } from "../utils/logger";
 import type { TransactionIntent } from "../storage/types";
 
 // Lazy-load BLE to avoid NativeEventEmitter initialization
@@ -58,7 +59,9 @@ function serializeIntent(intent: TransactionIntent): any {
     status: intent.status,
     createdAt: intent.createdAt,
     expiresAt: intent.expiresAt,
-    broadcastAttempts: intent.broadcastAttempts,
+    signature: intent.signature,
+    nonce: intent.nonce,
+    memo: intent.memo,
     intentVersion: intent.intentVersion,
   };
 }
@@ -128,12 +131,12 @@ export async function isBLESupported(): Promise<boolean> {
     const state = await manager.state();
     const supported =
       state === "PoweredOn" || state === "PoweredOff" || state === "Unknown";
-    console.log("BLE State:", state, "Supported:", supported);
+    log.info("BLE State check", undefined, { state, supported });
     return supported;
   } catch (err) {
-    console.warn("BLE check failed:", err);
+    log.warn("BLE check failed", err);
     // Default to true in development - assume BLE is available
-    console.log("BLE defaulting to true (available)");
+    log.debug("BLE defaulting to true (available)");
     return true;
   }
 }
@@ -158,13 +161,13 @@ export async function scanBLEDevices(
       const discoveredIds = new Set<string>();
 
       // Start scanning
-      console.log("Starting BLE scan...");
+      log.info("Starting BLE scan...");
       manager.startDeviceScan(
         [BLE_SERVICE_UUID],
         null,
         (error: any, device: any) => {
           if (error) {
-            console.error("BLE scan error:", error);
+            log.error("BLE scan error", error);
             return;
           }
 
@@ -181,8 +184,10 @@ export async function scanBLEDevices(
               method: "bluetooth",
               signal: device.rssi || 0,
             });
-            console.log(
-              `Found BLE device: ${device.name} (RSSI: ${device.rssi})`
+            log.info(
+              `Found BLE device: ${device.name}`,
+              undefined,
+              { deviceName: device.name, rssi: device.rssi }
             );
           }
         }
@@ -191,7 +196,9 @@ export async function scanBLEDevices(
       // Stop scan after timeout
       setTimeout(() => {
         manager.stopDeviceScan();
-        console.log(`BLE scan complete. Found ${devices.length} devices.`);
+        log.info(`BLE scan complete. Found ${devices.length} devices.`, undefined, {
+          deviceCount: devices.length,
+        });
         resolve(devices);
       }, timeoutMs);
     } catch (err) {
@@ -216,7 +223,7 @@ export async function sendViaBluetooth(
 
   try {
     // Step 1: Find and connect to device
-    console.log(`Connecting to BLE device: ${device.name}`);
+    log.info(`Connecting to BLE device: ${device.name}`);
     connectedDevice = await manager.connectToDevice(device.id, {
       autoConnect: false,
     });
@@ -241,8 +248,10 @@ export async function sendViaBluetooth(
     const payloadBytes = Buffer.from(payloadString, "utf8");
 
     // Step 3: Send in chunks if payload is large
-    console.log(
-      `Sending ${payloadBytes.length} bytes to ${device.name} via BLE`
+    log.info(
+      `Sending ${payloadBytes.length} bytes to ${device.name} via BLE`,
+      undefined,
+      { payloadSize: payloadBytes.length, deviceName: device.name }
     );
 
     if (payloadBytes.length > MTU_SIZE) {
@@ -257,7 +266,7 @@ export async function sendViaBluetooth(
           BLE_WRITE_CHARACTERISTIC,
           Buffer.from(chunk).toString("base64")
         );
-        console.log(`Sent chunk ${Math.floor(i / MTU_SIZE) + 1}`);
+        log.debug(`Sent chunk ${Math.floor(i / MTU_SIZE) + 1}`);
       }
     } else {
       // Send in single packet
@@ -275,10 +284,10 @@ export async function sendViaBluetooth(
     );
 
     if (!ackChar || !ackChar.value) {
-      console.warn("No acknowledgment received, but data was sent");
+      log.warn("No acknowledgment received, but data was sent");
     }
 
-    console.log(`Successfully delivered to ${device.name}`);
+    log.info(`Successfully delivered to ${device.name}`);
 
     return {
       success: true,
@@ -288,7 +297,7 @@ export async function sendViaBluetooth(
     };
   } catch (err) {
     const errorMsg = `BLE delivery failed: ${err instanceof Error ? err.message : err}`;
-    console.error(errorMsg);
+    log.error("BLE delivery failed", err, { deviceName: device.name });
     return {
       success: false,
       method: "bluetooth",
@@ -299,9 +308,9 @@ export async function sendViaBluetooth(
     if (connectedDevice) {
       try {
         await manager.cancelDeviceConnection(device.id);
-        console.log(`Disconnected from ${device.name}`);
+        log.info(`Disconnected from ${device.name}`);
       } catch (err) {
-        console.warn("Error disconnecting:", err);
+        log.warn("Error disconnecting", err);
       }
     }
   }
@@ -318,20 +327,20 @@ export async function isNFCSupported(): Promise<boolean> {
   try {
     const { NfcManager } = await getNfcManager();
     const isSupported = await NfcManager.isSupported();
-    console.log("NFC Supported:", isSupported);
+    log.info("NFC Supported check", undefined, { isSupported });
     if (isSupported) {
       try {
         await NfcManager.start();
-        console.log("NFC Started");
+        log.info("NFC Started");
       } catch (startErr) {
-        console.warn("Failed to start NFC:", startErr);
+        log.warn("Failed to start NFC", startErr);
       }
     }
     return isSupported;
   } catch (err) {
-    console.warn("NFC check failed:", err);
+    log.warn("NFC check failed", err);
     // Default to true in development - assume NFC is available
-    console.log("NFC defaulting to true (available)");
+    log.debug("NFC defaulting to true (available)");
     return true;
   }
 }
@@ -364,7 +373,9 @@ export async function writeIntentToNFC(
     const payload = JSON.stringify(nfcData);
     const payloadBytes = Buffer.from(payload, "utf8");
 
-    console.log(`Writing ${payloadBytes.length} bytes to NFC tag`);
+    log.info(`Writing ${payloadBytes.length} bytes to NFC tag`, undefined, {
+      payloadSize: payloadBytes.length,
+    });
 
     // Step 2: Request NFC technology and write data
     await NfcManager.requestTechnology([NfcTech.Ndef], {
@@ -382,7 +393,7 @@ export async function writeIntentToNFC(
 
     await NfcManager.ndefHandler.writeNdefMessage([message as any]);
 
-    console.log("Successfully wrote to NFC tag");
+    log.info("Successfully wrote to NFC tag");
 
     return {
       success: true,
@@ -391,7 +402,7 @@ export async function writeIntentToNFC(
     };
   } catch (err) {
     const errorMsg = `NFC write failed: ${err instanceof Error ? err.message : err}`;
-    console.error(errorMsg);
+    log.error("NFC write failed", err);
     return {
       success: false,
       method: "nfc",
@@ -416,7 +427,7 @@ export async function readIntentFromNFC(): Promise<DeliveryResult> {
       throw new Error("NFC not supported");
     }
 
-    console.log("Scanning for NFC tag...");
+    log.info("Scanning for NFC tag...");
 
     await NfcManager.requestTechnology([NfcTech.Ndef], {
       alertMessage: "Hold your device over the NFC tag to read the intent",
@@ -434,7 +445,7 @@ export async function readIntentFromNFC(): Promise<DeliveryResult> {
     const record = tag.ndefMessage[0];
     const intentData = Buffer.from(record.payload || []).toString("utf8");
 
-    console.log("Successfully read from NFC tag");
+    log.info("Successfully read from NFC tag");
 
     return {
       success: true,
@@ -444,7 +455,7 @@ export async function readIntentFromNFC(): Promise<DeliveryResult> {
     };
   } catch (err) {
     const errorMsg = `NFC read failed: ${err instanceof Error ? err.message : err}`;
-    console.error(errorMsg);
+    log.error("NFC read failed", err);
     return {
       success: false,
       method: "nfc",
@@ -539,7 +550,9 @@ export async function createQRCodeForIntent(
       );
     }
 
-    console.log(`QR code data generated (${qrData.length} bytes)`);
+    log.info(`QR code data generated (${qrData.length} bytes)`, undefined, {
+      qrDataSize: qrData.length,
+    });
 
     return qrData;
   } catch (err) {
@@ -559,24 +572,24 @@ export async function createQRCodeForIntent(
 export async function getAvailableDeliveryMethods(): Promise<
   DeliveryCapability[]
 > {
-  console.log("[DeliveryMethods] Checking available delivery methods...");
+  log.info("[DeliveryMethods] Checking available delivery methods...");
 
   let bleSupported = false;
   let nfcSupported = false;
 
   try {
     bleSupported = await isBLESupported();
-    console.log("[DeliveryMethods] BLE Supported:", bleSupported);
+    log.info("[DeliveryMethods] BLE Supported", undefined, { bleSupported });
   } catch (err) {
-    console.warn("[DeliveryMethods] BLE check failed:", err);
+    log.warn("[DeliveryMethods] BLE check failed", err);
     bleSupported = true; // Default to available
   }
 
   try {
     nfcSupported = await isNFCSupported();
-    console.log("[DeliveryMethods] NFC Supported:", nfcSupported);
+    log.info("[DeliveryMethods] NFC Supported", undefined, { nfcSupported });
   } catch (err) {
-    console.warn("[DeliveryMethods] NFC check failed:", err);
+    log.warn("[DeliveryMethods] NFC check failed", err);
     nfcSupported = true; // Default to available
   }
 
@@ -593,7 +606,7 @@ export async function getAvailableDeliveryMethods(): Promise<
     },
   ];
 
-  console.log("[DeliveryMethods] Available methods:", methods);
+  log.info("[DeliveryMethods] Available methods", undefined, { methods });
   return methods;
 }
 

@@ -8,6 +8,7 @@
  */
 
 import type { TransactionIntent } from "../storage/types";
+import { log } from "../utils/logger";
 import { validateReceivedIntent } from "./receive-validator";
 
 // Lazy-load BLE to avoid NativeEventEmitter initialization
@@ -61,7 +62,7 @@ async function getNfcManager() {
     const nfc = await import("react-native-nfc-manager");
     return nfc.default;
   } catch {
-    console.warn("[NFC] NFC manager not available");
+    log.warn("[NFC] NFC manager not available");
     return null;
   }
 }
@@ -71,35 +72,31 @@ async function getNfcManager() {
  * This allows other devices to find and connect to receive transactions
  * PRODUCTION: Called on app startup
  */
-export async function startBLEAdvertising(): Promise<void> {
+export async function startBLEAdvertising(name?: string): Promise<void> {
   try {
     const manager = await getBleManager();
 
-    console.log("[BLE] Starting BLE advertising...");
+    log.info(`[BLE] Starting BLE advertising as: ${name || "Zypp User"}...`);
 
     // Check BLE state
     const state = await manager.state();
-    console.log("[BLE] Current state:", state);
+    log.info("[BLE] Current state", undefined, { state });
 
     if (state !== "PoweredOn") {
-      console.warn(
-        "[BLE] Bluetooth is not powered on. Will retry when available."
+      log.warn(
+        "[BLE] Bluetooth is not powered on. Advertising may not start."
       );
-      // On Android, we need to request permissions
-      if (state === "Unauthorized") {
-        console.warn("[BLE] BLE permission required - check app permissions");
-      }
       return;
     }
 
-    console.log("[BLE] BLE advertising enabled - device is now discoverable");
+    log.info(`[BLE] BLE advertising enabled - device is now discoverable as ${name}`);
 
     // Note: Actual BLE advertising (peripheral mode) setup is platform-specific:
     // iOS: Use CoreBluetooth CBPeripheralManager
     // Android: Use android.bluetooth.le.BluetoothLeAdvertiser
     // This is typically handled through native modules or Expo's built-in BLE support
   } catch (err) {
-    console.error("[BLE] Failed to start advertising:", err);
+    log.error("[BLE] Failed to start advertising", err);
     // Don't throw - advertising is optional, app should still work
   }
 }
@@ -109,7 +106,7 @@ export async function startBLEAdvertising(): Promise<void> {
  */
 export async function stopBLEAdvertising(): Promise<void> {
   try {
-    console.log("[BLE] Stopping BLE advertising");
+    log.info("[BLE] Stopping BLE advertising");
 
     // Unsubscribe from characteristic notifications
     if (bleCharacteristicSubscription) {
@@ -121,7 +118,7 @@ export async function stopBLEAdvertising(): Promise<void> {
     await manager.destroy();
     bleManager = null;
   } catch (err) {
-    console.error("[BLE] Failed to stop advertising:", err);
+    log.error("[BLE] Failed to stop advertising", err);
   }
 }
 
@@ -147,15 +144,17 @@ export function onTransactionReceived(
  * Trigger all registered callbacks with received transaction
  */
 function broadcastTransaction(tx: ReceivedTransaction): void {
-  console.log(
-    `[RECEIVE] Broadcasting transaction from ${tx.source} to ${transactionCallbacks.length} listeners`
+  log.info(
+    `[RECEIVE] Broadcasting transaction from ${tx.source} to ${transactionCallbacks.length} listeners`,
+    undefined,
+    { source: tx.source, listenerCount: transactionCallbacks.length }
   );
   transactionCallbacks.forEach(
     (callback: (tx: ReceivedTransaction) => void) => {
       try {
         callback(tx);
       } catch (err) {
-        console.error("[RECEIVE] Callback error:", err);
+        log.error("[RECEIVE] Callback error", err);
       }
     }
   );
@@ -177,8 +176,10 @@ export async function handleBLECharacteristicWrite(
     const chunk = Buffer.from(value, "base64");
     receivedDataBuffer = Buffer.concat([receivedDataBuffer, chunk]);
 
-    console.log(
-      `[BLE] Received chunk: ${chunk.length} bytes (total: ${receivedDataBuffer.length})`
+    log.debug(
+      `[BLE] Received chunk: ${chunk.length} bytes (total: ${receivedDataBuffer.length})`,
+      undefined,
+      { chunkLength: chunk.length, totalLength: receivedDataBuffer.length }
     );
 
     // Try to parse as JSON (if complete)
@@ -186,16 +187,16 @@ export async function handleBLECharacteristicWrite(
       const jsonString = receivedDataBuffer.toString("utf8");
       const payload = JSON.parse(jsonString);
 
-      console.log("[BLE] Received complete transaction");
+      log.info("[BLE] Received complete transaction");
 
-      // Validate the received intent
+      // Validate the received intent - pass transparent payload for verification (9.5)
       const validation = await validateReceivedIntent(
-        payload.encrypted,
+        payload,
         Date.now()
       );
 
       if (!validation.valid || !validation.intent) {
-        console.error("[BLE] Validation failed:", validation.errors);
+        log.error("[BLE] Validation failed", undefined, { errors: validation.errors });
         receivedDataBuffer = Buffer.alloc(0);
         return;
       }
@@ -212,10 +213,10 @@ export async function handleBLECharacteristicWrite(
       receivedDataBuffer = Buffer.alloc(0);
     } catch {
       // JSON parse error - data might not be complete yet
-      console.log("[BLE] Waiting for more data...");
+      log.debug("[BLE] Waiting for more data...");
     }
   } catch (err) {
-    console.error("[BLE] Error handling characteristic write:", err);
+    log.error("[BLE] Error handling characteristic write", err);
     receivedDataBuffer = Buffer.alloc(0);
   }
 }
@@ -230,7 +231,7 @@ export async function handleBLECharacteristicWrite(
  */
 export async function handleNFCRead(nfcData: any): Promise<void> {
   try {
-    console.log("[NFC] Processing NFC read...");
+    log.info("[NFC] Processing NFC read...");
 
     if (!nfcData || !nfcData.ndefMessage) {
       throw new Error("No NDEF message found on tag");
@@ -240,19 +241,19 @@ export async function handleNFCRead(nfcData: any): Promise<void> {
     const record = nfcData.ndefMessage[0];
     const payload = Buffer.from(record.payload || []).toString("utf8");
 
-    console.log("[NFC] Received transaction from NFC tag");
+    log.info("[NFC] Received transaction from NFC tag");
 
     // Parse the payload
     const txData = JSON.parse(payload);
 
-    // Validate the received intent
+    // Validate the received intent - pass transparent payload for verification (9.5)
     const validation = await validateReceivedIntent(
-      txData.encrypted,
+      txData,
       Date.now()
     );
 
     if (!validation.valid || !validation.intent) {
-      console.error("[NFC] Validation failed:", validation.errors);
+      log.error("[NFC] Validation failed", undefined, { errors: validation.errors });
       return;
     }
 
@@ -263,7 +264,7 @@ export async function handleNFCRead(nfcData: any): Promise<void> {
       receivedAt: Date.now(),
     });
   } catch (err) {
-    console.error("[NFC] Error handling NFC read:", err);
+    log.error("[NFC] Error handling NFC read", err);
   }
 }
 
@@ -274,28 +275,28 @@ export async function handleNFCRead(nfcData: any): Promise<void> {
 export async function startNFCListening(): Promise<void> {
   try {
     if (nfcListenerActive) {
-      console.log("[NFC] NFC listening already active");
+      log.info("[NFC] NFC listening already active");
       return;
     }
 
-    console.log("[NFC] Starting NFC listener...");
+    log.info("[NFC] Starting NFC listener...");
 
     const nfc = await getNfcManager();
     if (!nfc) {
-      console.warn("[NFC] NFC manager unavailable - NFC disabled");
+      log.warn("[NFC] NFC manager unavailable - NFC disabled");
       return;
     }
 
     // Initialize NFC
     await nfc.start();
-    console.log("[NFC] NFC initialized");
+    log.info("[NFC] NFC initialized");
 
     // Register for NFC tag detection
     // When a tag is detected, handleNFCRead will be called
-    console.log("[NFC] NFC listening active - ready to receive tags");
+    log.info("[NFC] NFC listening active - ready to receive tags");
     nfcListenerActive = true;
   } catch (err) {
-    console.error("[NFC] Failed to start NFC listening:", err);
+    log.error("[NFC] Failed to start NFC listening", err);
     nfcListenerActive = false;
   }
 }
@@ -309,7 +310,7 @@ export async function stopNFCListening(): Promise<void> {
       return;
     }
 
-    console.log("[NFC] Stopping NFC listening");
+    log.info("[NFC] Stopping NFC listening");
 
     const nfc = await getNfcManager();
     if (nfc) {
@@ -321,9 +322,9 @@ export async function stopNFCListening(): Promise<void> {
     }
 
     nfcListenerActive = false;
-    console.log("[NFC] NFC listener stopped");
+    log.info("[NFC] NFC listener stopped");
   } catch (err) {
-    console.error("[NFC] Failed to stop NFC listening:", err);
+    log.error("[NFC] Failed to stop NFC listening", err);
   }
 }
 

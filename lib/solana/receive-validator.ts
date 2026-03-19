@@ -13,8 +13,12 @@
  * 6. Return validated intent for preview
  */
 
+import { PublicKey } from "@solana/web3.js";
+import * as nacl from "tweetnacl";
 import type { TransactionIntent } from "../storage/types";
 import { decryptIntent } from "./intent-encryption";
+import { log } from "../utils/logger";
+import { isNonceUsed, validateNonceFormat } from "../storage/nonce-tracker";
 
 // ============================================================================
 // TYPES
@@ -70,14 +74,14 @@ const VALIDATION_RULES = {
 // ============================================================================
 
 /**
- * Validate a received encrypted intent
+ * Validate a received intent (either encrypted or transparent)
  *
- * @param encryptedData Encrypted intent data from QR/BLE/NFC
+ * @param data Encrypted intent string OR partial TransactionIntent object
  * @param currentTime Current timestamp for expiry check
  * @returns Validation result with intent and any errors
  */
 export async function validateReceivedIntent(
-  encryptedData: string,
+  data: string | Partial<TransactionIntent>,
   currentTime: number = Date.now()
 ): Promise<ValidationResult> {
   const errors: ValidationError[] = [];
@@ -85,30 +89,38 @@ export async function validateReceivedIntent(
 
   try {
     // ========================================================================
-    // STEP 1: DECRYPT INTENT
+    // STEP 1: RESOLVE INTENT (DECRYPT IF STRING)
     // ========================================================================
-    let decryptedData: Partial<TransactionIntent>;
+    let intent: TransactionIntent;
 
-    try {
-      decryptedData = await decryptIntent(encryptedData);
-    } catch (err) {
-      return {
-        valid: false,
-        errors: [
-          {
-            field: "encryptedPayload",
-            reason: `Decryption failed: ${err}`,
-            severity: "critical",
-          },
-        ],
-        warnings: [],
-      };
+    if (typeof data === "string") {
+      try {
+        intent = (await decryptIntent(data)) as TransactionIntent;
+      } catch (err) {
+        return {
+          valid: false,
+          errors: [
+            {
+              field: "encryptedPayload",
+              reason: `Decryption failed: ${err}`,
+              severity: "critical",
+            },
+          ],
+          warnings: [],
+        };
+      }
+    } else {
+      intent = { ...data } as TransactionIntent;
+    }
+
+    // Ensure amount is BigInt if it came as a string (from P2P transport)
+    if (typeof intent.amount === "string") {
+      intent.amount = BigInt(intent.amount);
     }
 
     // ========================================================================
     // STEP 2: VALIDATE ALL REQUIRED FIELDS
     // ========================================================================
-    const intent = decryptedData as TransactionIntent;
 
     // Validate ID
     if (!intent.id || typeof intent.id !== "string") {
@@ -246,10 +258,54 @@ export async function validateReceivedIntent(
     }
 
     // ========================================================================
-    // STEP 5: OPTIONAL - CHECK SENDER REPUTATION
+    // STEP 5: VALIDATE NONCE (REPLAY PROTECTION)
     // ========================================================================
-    // This is where you'd check against a blocklist, known scammers, etc.
-    // For now, we'll just check if sender looks reasonable
+    if (intent.nonce) {
+      // Validate nonce format (64 hex chars = 32 bytes)
+      if (!validateNonceFormat(intent.nonce)) {
+        errors.push({
+          field: "nonce",
+          reason: "Invalid nonce format - must be 64 hex characters (32 bytes)",
+          severity: "critical",
+        });
+      } else {
+        // Check if nonce has been used before (replay attack detection)
+        const nonceUsed = await isNonceUsed(intent.nonce);
+        if (nonceUsed) {
+          errors.push({
+            field: "nonce",
+            reason: "Nonce has already been used - possible replay attack",
+            severity: "critical",
+          });
+        }
+      }
+    } else {
+      errors.push({
+        field: "nonce",
+        reason: "Missing nonce - required for replay protection",
+        severity: "critical",
+      });
+    }
+
+    // ========================================================================
+    // STEP 6: VERIFY SIGNATURE
+    // ========================================================================
+    if (intent.signature && intent.sender) {
+      const isValid = verifyIntentSignature(intent);
+      if (!isValid) {
+        errors.push({
+          field: "signature",
+          reason: "Invalid transaction signature",
+          severity: "critical",
+        });
+      }
+    } else {
+      errors.push({
+        field: "signature",
+        reason: "Missing signature or sender public key",
+        severity: "critical",
+      });
+    }
 
     // ========================================================================
     // RETURN RESULT
@@ -296,13 +352,26 @@ export function validateIntent(intent: TransactionIntent): ValidationResult {
     "createdAt",
     "expiresAt",
     "status",
+    "nonce", // Nonce is required for replay protection
+    "signature", // Signature is required for authentication
   ];
 
   for (const field of requiredFields) {
-    if (!(field in intent) || (intent as any)[field] === undefined) {
+    if (!(field in intent) || (intent as any)[field] === undefined || (intent as any)[field] === "") {
       errors.push({
         field,
         reason: `Missing required field: ${field}`,
+        severity: "critical",
+      });
+    }
+  }
+
+  // Validate nonce format and check for replay attacks
+  if (intent.nonce) {
+    if (!validateNonceFormat(intent.nonce)) {
+      errors.push({
+        field: "nonce",
+        reason: "Invalid nonce format - must be 64 hex characters (32 bytes)",
         severity: "critical",
       });
     }
@@ -342,8 +411,55 @@ export function validateIntent(intent: TransactionIntent): ValidationResult {
 }
 
 /**
+ * Verify the Ed25519 signature of an intent
+ */
+export function verifyIntentSignature(intent: TransactionIntent): boolean {
+  try {
+    if (!intent.signature || !intent.sender) return false;
+
+    // 1. Re-create canonical bytes (MUST MATCH sender's serialization)
+    const canonical = {
+      type: intent.type,
+      sender: intent.sender,
+      recipient: intent.recipient,
+      amount: intent.amount.toString(),
+      token: intent.token,
+      createdAt: intent.createdAt,
+      id: intent.id,
+      nonce: intent.nonce,
+    };
+
+    const jsonStr = JSON.stringify(canonical);
+    const intentBytes = new TextEncoder().encode(jsonStr);
+
+    // 2. Decode signature and public key
+    const signatureBytes = base64ToBytes(intent.signature);
+    
+    // Solana sender is Base58, we need to convert to Uint8Array for nacl
+    const publicKeyBytes = new PublicKey(intent.sender).toBytes();
+    
+    return nacl.sign.detached.verify(intentBytes, signatureBytes, publicKeyBytes);
+  } catch (err) {
+    console.error("Signature verification failed:", err);
+    log.error("Signature verification failed", err);
+    return false;
+  }
+}
+
+/**
+ * Base64 decoder helper
+ */
+function base64ToBytes(b64: string): Uint8Array {
+  const binaryString = atob(b64);
+  const bytes = new Uint8Array(binaryString.length);
+  for (let i = 0; i < binaryString.length; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return bytes;
+}
+
+/**
  * Check if a string is a valid Solana public key
- * (Base58 encoding, ~44 characters)
  */
 function isValidSolanaPublicKey(key: string): boolean {
   if (typeof key !== "string") return false;

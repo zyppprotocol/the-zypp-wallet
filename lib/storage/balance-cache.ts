@@ -12,6 +12,7 @@
  */
 
 import * as SecureStore from "expo-secure-store";
+import { log } from "../utils/logger";
 
 interface CachedBalance {
   publicKey: string;
@@ -78,7 +79,7 @@ export async function getCachedBalance(
 
     return cached.solBalance;
   } catch (err) {
-    console.warn("Failed to get cached balance:", err);
+    log.warn("Failed to get cached balance", err);
     return null;
   }
 }
@@ -90,7 +91,7 @@ export async function clearCachedBalance(publicKey: string): Promise<void> {
   try {
     await SecureStore.deleteItemAsync(getCacheKey(publicKey));
   } catch (err) {
-    console.warn("Failed to clear cached balance:", err);
+    log.warn("Failed to clear cached balance", err);
   }
 }
 

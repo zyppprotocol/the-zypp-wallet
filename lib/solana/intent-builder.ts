@@ -18,6 +18,7 @@ import type {
   TransactionIntent,
   TransactionType,
 } from "../storage/types";
+import { log } from "../utils/logger";
 
 /**
  * Parameters for building an intent
@@ -116,6 +117,7 @@ export function validateIntent(intent: TransactionIntent): boolean {
   for (const field of requiredFields) {
     if (!(field in intent) || (intent as any)[field] === undefined) {
       console.warn(`Intent missing required field: ${field}`);
+      log.warn(`Intent missing required field: ${field}`);
       return false;
     }
   }

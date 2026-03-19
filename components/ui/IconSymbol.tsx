@@ -1,13 +1,18 @@
 // Fallback for using MaterialIcons on Android and web.
 
-import MaterialIcons from "@expo/vector-icons/MaterialIcons";
-import { SymbolViewProps, SymbolWeight } from "expo-symbols";
+import { Ionicons } from "@expo/vector-icons";
+import { SymbolView, SymbolViewProps, SymbolWeight } from "expo-symbols";
 import { ComponentProps } from "react";
-import { OpaqueColorValue, type StyleProp, type TextStyle } from "react-native";
+import {
+  OpaqueColorValue,
+  Platform,
+  type StyleProp,
+  type ViewStyle,
+} from "react-native";
 
 type IconMapping = Record<
   SymbolViewProps["name"],
-  ComponentProps<typeof MaterialIcons>["name"]
+  ComponentProps<typeof Ionicons>["name"]
 >;
 type IconSymbolName = keyof typeof MAPPING;
 
@@ -17,26 +22,34 @@ type IconSymbolName = keyof typeof MAPPING;
  * - see SF Symbols in the [SF Symbols](https://developer.apple.com/sf-symbols/) app.
  */
 const MAPPING = {
-  "house.fill": "home-filled",
-  house: "home",
+  "house.fill": "home",
+  house: "home-outline",
   "paperplane.fill": "send",
-  paperplane: "send",
-  "chevron.left.forwardslash.chevron.right": "code",
-  "chevron.right": "chevron-right",
-  "arrow.up.right": "arrow-outward",
+  paperplane: "send-outline",
+  "chevron.left.forwardslash.chevron.right": "code-slash",
+  "chevron.right": "chevron-forward",
+  "arrow.up.right": "arrow-redo-outline",
+  "questionmark.circle": "help-circle-outline",
+  "chart.bar.fill": "history",
   "arrow.down.circle.fill": "download",
-  "arrow.down.circle": "download",
-  menucard: "menu",
-  checkmark: "done",
-  "delete.left": "backspace",
-  "checkmark.shield.fill": "verified-user",
-  "info.circle": "info-outline",
+  "arrow.down.circle": "download-outline",
+  menucard: "menu-outline",
+  checkmark: "checkmark",
+  "delete.left": "backspace-outline",
+  "checkmark.shield.fill": "shield-checkmark",
+  "info.circle": "information-circle-outline",
   "person.circle.fill": "person",
   "person.circle": "person-outline",
   // Theme icons
-  "moon.fill": "nights_stay",
-  "sun.max.fill": "wb_sunny",
-  "brightness.auto": "brightness-auto",
+  "moon.fill": "moon",
+  "sun.max.fill": "sunny",
+  "brightness.auto": "contrast",
+  // Tab bar icons
+  "wallet.bifold.fill": "wallet",
+  "person.fill": "person",
+  "arrow.up.backward.bottomtrailing.rectangle.fill": "share",
+  "plus.circle": "add-circle-outline",
+  "arrow.down.forward.topleading.rectangle.fill": "download",
 } as unknown as IconMapping;
 
 /**
@@ -49,19 +62,38 @@ export function IconSymbol({
   size = 20,
   color,
   style,
+  weight = "regular",
 }: {
   name: IconSymbolName;
   size?: number;
   color: string | OpaqueColorValue;
-  style?: StyleProp<TextStyle>;
+  style?: StyleProp<ViewStyle>;
   weight?: SymbolWeight;
 }) {
+  if (Platform.OS === "ios") {
+    return (
+      <SymbolView
+        weight={weight}
+        tintColor={color}
+        resizeMode="scaleAspectFit"
+        name={name}
+        style={[
+          {
+            width: size,
+            height: size,
+          },
+          style,
+        ]}
+      />
+    );
+  }
+
   return (
-    <MaterialIcons
+    <Ionicons
       color={color}
       size={size}
       name={MAPPING[name]}
-      style={style}
+      style={style as any}
     />
   );
 }

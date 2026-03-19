@@ -12,6 +12,7 @@
  */
 
 import * as LocalAuthentication from "expo-local-authentication";
+import { log } from "../utils/logger";
 
 // ============================================================================
 // TYPES
@@ -70,7 +71,7 @@ export async function checkBiometricAvailability(): Promise<BiometricAuthStatus>
       securityLevel: biometricTypes.length > 0 ? "high" : "low",
     };
   } catch (error) {
-    console.error("Error checking biometric availability:", error);
+    log.error("Error checking biometric availability", error);
     return {
       available: false,
       enrolled: false,

@@ -18,6 +18,7 @@
 import * as Crypto from "expo-crypto";
 import * as SecureStore from "expo-secure-store";
 import nacl from "tweetnacl";
+import { log } from "../utils/logger";
 import { ZyppUser } from "./types";
 
 // ============================================================================
@@ -76,7 +77,8 @@ function generateRandomBytes(length: number): Uint8Array {
   try {
     return Crypto.getRandomBytes(length);
   } catch (err) {
-    console.error("generateRandomBytes failed:", err, err?.stack);
+    const msg = err instanceof Error ? err.message : String(err);
+    log.error("generateRandomBytes failed", err);
     throw err;
   }
 }
@@ -107,7 +109,8 @@ function bytesToBase64(bytes: Uint8Array): string {
   try {
     return Buffer.from(bytes).toString("base64");
   } catch (err) {
-    console.error("bytesToBase64 failed:", err, err?.stack, {
+    const msg = err instanceof Error ? err.message : String(err);
+    log.error("bytesToBase64 failed", err, {
       inputType: Object.prototype.toString.call(bytes),
       length: bytes && (bytes as any).length,
     });
@@ -259,13 +262,19 @@ export async function initializeSecureStorageFromSecretKey(
     pin?: string;
   } = {}
 ): Promise<void> {
-  console.debug(
-    "initializeSecureStorageFromSecretKey: secretKey length=",
-    secretKey?.length,
-    "options=",
-    options
+  log.debug(
+    "initializeSecureStorageFromSecretKey: starting",
+    undefined,
+    { secretKeyLength: secretKey?.length, options }
   );
-  // Accept secretKey (ed25519 64 bytes) and persist encrypted
+  // PURGE STALE CONFIG: Ensure no leftover config or salts from previous aborted runs
+  // are present, which could cause "Decryption failed" if we switch flows.
+  try {
+    await SecureStore.deleteItemAsync(STORAGE_KEYS.CONFIG);
+    await SecureStore.deleteItemAsync(STORAGE_KEYS.SALT);
+    // Note: We don't wipe KEY_DATA yet because that's our existence check.
+  } catch {}
+
   // Generate random salt for PBKDF2
   const salt = await generateRandomBytes(16); // 128 bits
 
@@ -287,40 +296,34 @@ export async function initializeSecureStorageFromSecretKey(
   // Derive Master Encryption Key (MEK) from PIN using PBKDF2
   let mek: Uint8Array | null = null;
   try {
-    console.debug(
+    log.debug(
       "initializeSecureStorageFromSecretKey: deriving MEK (this may take a moment)"
     );
     mek = await deriveKeyFromPin(pin, salt);
-    console.debug(
-      "initializeSecureStorageFromSecretKey: derived MEK length=",
-      mek.length
+    log.debug(
+      "initializeSecureStorageFromSecretKey: derived MEK",
+      undefined,
+      { mekLength: mek.length }
     );
   } catch (dkErr) {
-    console.error(
-      "initializeSecureStorageFromSecretKey: deriveKeyFromPin failed:",
-      dkErr,
-      dkErr?.stack
-    );
+    log.error("initializeSecureStorageFromSecretKey: deriveKeyFromPin failed", dkErr);
     throw dkErr;
   }
 
   // Encrypt the private key using MEK
   let encryptionResult: EncryptionResult;
   try {
-    console.debug(
+    log.debug(
       "initializeSecureStorageFromSecretKey: encrypting private key"
     );
     encryptionResult = await encryptData(new Uint8Array(secretKey), mek);
-    console.debug(
-      "initializeSecureStorageFromSecretKey: encryption result ciphertext length=",
-      encryptionResult.ciphertext.length
+    log.debug(
+      "initializeSecureStorageFromSecretKey: encryption complete",
+      undefined,
+      { ciphertextLength: encryptionResult.ciphertext.length }
     );
   } catch (encErr) {
-    console.error(
-      "initializeSecureStorageFromSecretKey: encryptData failed:",
-      encErr,
-      encErr?.stack
-    );
+    log.error("initializeSecureStorageFromSecretKey: encryptData failed", encErr);
     if (mek) zeroBuffer(mek);
     throw encErr;
   }
@@ -330,11 +333,7 @@ export async function initializeSecureStorageFromSecretKey(
   try {
     ed = nacl.sign.keyPair.fromSecretKey(new Uint8Array(secretKey));
   } catch (edErr) {
-    console.error(
-      "initializeSecureStorageFromSecretKey: failed to compute public key:",
-      edErr,
-      edErr?.stack
-    );
+    log.error("initializeSecureStorageFromSecretKey: failed to compute public key", edErr);
     if (mek) zeroBuffer(mek);
     zeroBuffer(encryptionResult.key);
     throw edErr;
@@ -353,7 +352,7 @@ export async function initializeSecureStorageFromSecretKey(
 
   // Store encrypted key + metadata
   try {
-    console.debug(
+    log.debug(
       "initializeSecureStorageFromSecretKey: storing key data to SecureStore"
     );
     await SecureStore.setItemAsync(
@@ -369,11 +368,7 @@ export async function initializeSecureStorageFromSecretKey(
       keychainAccessible: SecureStore.WHEN_UNLOCKED,
     });
   } catch (storeErr) {
-    console.error(
-      "initializeSecureStorageFromSecretKey: failed to store key data:",
-      storeErr,
-      storeErr?.stack
-    );
+    log.error("initializeSecureStorageFromSecretKey: failed to store key data", storeErr);
 
     // Clean up sensitive buffers before rethrowing
     if (mek) zeroBuffer(mek);
@@ -589,6 +584,40 @@ export async function getWalletConfig(): Promise<{
 }
 
 /**
+ * Update wallet config (biometricEnabled, pinEnabled)
+ */
+export async function setWalletConfig(config: {
+  biometricEnabled?: boolean;
+  pinEnabled?: boolean;
+}): Promise<{ biometricEnabled: boolean; pinEnabled: boolean }> {
+  const keyDataJson = await SecureStore.getItemAsync(STORAGE_KEYS.KEY_DATA);
+  if (!keyDataJson) {
+    throw new Error("Wallet data not found");
+  }
+
+  const keyData: StoredKeyData = JSON.parse(keyDataJson);
+
+  // Update only the fields provided
+  if (config.biometricEnabled !== undefined) {
+    keyData.biometricEnabled = config.biometricEnabled;
+  }
+  if (config.pinEnabled !== undefined) {
+    keyData.pinEnabled = config.pinEnabled;
+  }
+
+  // Save back to secure storage
+  await SecureStore.setItemAsync(
+    STORAGE_KEYS.KEY_DATA,
+    JSON.stringify(keyData)
+  );
+
+  return {
+    biometricEnabled: keyData.biometricEnabled,
+    pinEnabled: keyData.pinEnabled,
+  };
+}
+
+/**
  * Change PIN (requires current PIN)
  */
 export async function changePIN(
@@ -654,6 +683,7 @@ export async function changePIN(
       } catch (err) {
         // If biometric rotation fails, don't block PIN change but warn
         console.warn("Failed to rotate biometric PIN:", err);
+        log.warn("Failed to rotate biometric PIN", err);
       }
     }
 
@@ -696,6 +726,7 @@ export const SecureStorage = {
   getPublicKey,
   isWalletInitialized,
   getWalletConfig,
+  setWalletConfig,
   getBiometricPin,
   setUser,
   getUser,

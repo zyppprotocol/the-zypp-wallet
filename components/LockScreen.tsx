@@ -1,21 +1,34 @@
 import PinInput from "@/components/PinInput";
-import { useColorScheme } from "@/components/ui";
 import { isUserComplete } from "@/lib/auth";
 import { useAppLock } from "@/lib/storage/app-lock";
 import { SecureStorage } from "@/lib/storage/secure-storage";
 import { BlurView } from "expo-blur";
-import React, { useState } from "react";
-import { Alert, Text, TouchableOpacity, View } from "react-native";
+import React, { useState, useEffect } from "react";
+import { Alert, Platform, Text, TouchableOpacity, View } from "react-native";
+import { useColorScheme } from "./ui";
 
 export const LockScreen: React.FC = () => {
-  const { isLocked, unlockWithBiometric, unlockWithPin, biometricAvailable } =
-    useAppLock();
+  const {
+    isLocked,
+    unlockWithBiometric,
+    unlockWithPin,
+    biometricAvailable,
+    refreshBiometricAvailability,
+  } = useAppLock();
+  const colorScheme = useColorScheme();
   const [pin, setPin] = useState("");
   const [loading, setLoading] = useState(false);
-  const colorScheme = useColorScheme();
+
+  // Debug log
+  console.log("LockScreen - biometricAvailable:", biometricAvailable);
 
   // Check if user is fully authenticated (wallet + zyppUserId + PIN/biometrics)
   const [userComplete, setUserComplete] = useState<boolean | null>(null);
+  
+  // Refresh biometric availability when the lockscreen mounts/becomes visible
+  useEffect(() => {
+    refreshBiometricAvailability();
+  }, [refreshBiometricAvailability]);
   React.useEffect(() => {
     let mounted = true;
     (async () => {
@@ -75,62 +88,227 @@ export const LockScreen: React.FC = () => {
       Alert.alert("Invalid PIN", "The PIN you entered is incorrect.");
     } finally {
       setLoading(false);
+      setPin("");
     }
   };
 
   return (
     <View style={{ position: "absolute", inset: 0, zIndex: 9999 }}>
-      <BlurView intensity={80} tint="dark" style={{ flex: 1, padding: 24 }}>
+      {Platform.OS === "ios" ? (
+        <BlurView intensity={80} tint="dark" style={{ flex: 1, padding: 24 }}>
+          <View
+            style={{
+              flex: 1,
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            {biometricAvailable ? (
+              <>
+                <Text
+                  style={{
+                    fontFamily: "semibold",
+                    fontSize: 24,
+                    color: "white",
+                    marginBottom: 12,
+                    letterSpacing: -0.5,
+                  }}
+                >
+                  Unlock with Face ID
+                </Text>
+
+                <TouchableOpacity
+                  onPress={onBiometric}
+                  disabled={loading}
+                  style={{
+                    width: "100%",
+                    paddingVertical: 14,
+                    paddingHorizontal: 20,
+                    backgroundColor: "#fff",
+                    borderRadius: 999,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    marginTop: 32,
+                  }}
+                >
+                  <Text
+                    style={{
+                      fontFamily: "semibold",
+                      fontWeight: "600",
+                      fontSize: 18,
+                      color: "#000",
+                    }}
+                  >
+                    {loading ? "Unlocking…" : "Unlock"}
+                  </Text>
+                </TouchableOpacity>
+              </>
+            ) : (
+              <>
+                <Text
+                  style={{
+                    fontFamily: "semibold",
+                    fontSize: 24,
+                    color: "white",
+                    marginBottom: 24,
+                    letterSpacing: -0.5,
+                  }}
+                >
+                  Enter your PIN
+                </Text>
+
+                <PinInput
+                  length={4}
+                  value={pin}
+                  onChange={(v) => setPin(v)}
+                  onComplete={(v) => onSubmitPin(v)}
+                  autoFocus
+                  secure
+                  digitColor="white"
+                />
+
+                <TouchableOpacity
+                  onPress={() => onSubmitPin(pin)}
+                  disabled={loading}
+                  style={{
+                    width: "100%",
+                    paddingVertical: 14,
+                    paddingHorizontal: 20,
+                    backgroundColor: "#fff",
+                    borderRadius: 999,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    marginTop: 32,
+                  }}
+                >
+                  <Text
+                    style={{
+                      fontFamily: "semibold",
+                      fontWeight: "600",
+                      fontSize: 18,
+                      color: "#000",
+                    }}
+                  >
+                    {loading ? "Unlocking…" : "Unlock"}
+                  </Text>
+                </TouchableOpacity>
+              </>
+            )}
+          </View>
+        </BlurView>
+      ) : (
+        // Android: Use semi-transparent dark overlay with proper fonts
         <View
           style={{
             flex: 1,
+            backgroundColor: colorScheme === "dark" ? "rgba(0, 0, 0, 0.97)" : "rgba(0, 0, 0, 0.97)",
+            padding: 24,
             alignItems: "center",
             justifyContent: "center",
           }}
         >
-          <Text className="tracking-tight mb-3 font-semibold text-2xl text-white">
-            Enter your PIN to unlock
-          </Text>
-
-          <PinInput
-            length={4}
-            value={pin}
-            onChange={(v) => setPin(v)}
-            onComplete={(v) => onSubmitPin(v)}
-            autoFocus
-            secure
-            digitColor="white"
-          />
-
-          <View style={{ height: 12 }} />
-
-          <TouchableOpacity
-            onPress={onSubmitPin}
+          <View
             style={{
-              paddingVertical: 10,
-              paddingHorizontal: 20,
-              backgroundColor: "#fff",
-              borderRadius: 12,
-              marginBottom: 8,
+              flex: 1,
+              alignItems: "center",
+              justifyContent: "center",
+              width: "100%",
             }}
           >
-            <Text style={{ fontWeight: "600" }}>
-              {loading ? "Unlocking…" : "Unlock"}
-            </Text>
-          </TouchableOpacity>
+            {biometricAvailable ? (
+              <>
+                {/* <Text
+                  style={{
+                    fontFamily: "semibold",
+                    fontSize: 24,
+                    color: "white",
+                    marginBottom: 12,
+                    letterSpacing: -0.5,
+                  }}
+                >
+                  Unlock with Biometrics
+                </Text> */}
 
-          {biometricAvailable ? (
-            <TouchableOpacity
-              onPress={onBiometric}
-              style={{ padding: 8, marginTop: 8 }}
-            >
-              <Text style={{ color: "#fff" }}>
-                {loading ? "…" : "Use biometrics"}
-              </Text>
-            </TouchableOpacity>
-          ) : null}
+                <TouchableOpacity
+                  onPress={onBiometric}
+                  disabled={loading}
+                  style={{
+                    width: "80%",
+                    paddingVertical: 14,
+                    paddingHorizontal: 20,
+                    backgroundColor: "#fff",
+                    borderRadius: 999,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    marginTop: 32,
+                  }}
+                >
+                  <Text
+                    style={{
+                      fontFamily: "semibold",
+                      fontWeight: "600",
+                      fontSize: 18,
+                      color: "#000",
+                    }}
+                  >
+                    {loading ? "Unlocking" : "Unlock with Biometrics"}
+                  </Text>
+                </TouchableOpacity>
+              </>
+            ) : (
+              <>
+                <Text
+                  style={{
+                    fontFamily: "semibold",
+                    fontSize: 24,
+                    color: "white",
+                    marginBottom: 24,
+                    letterSpacing: -0.5,
+                  }}
+                >
+                  Enter your PIN
+                </Text>
+
+                <PinInput
+                  length={4}
+                  value={pin}
+                  onChange={(v) => setPin(v)}
+                  onComplete={(v) => onSubmitPin(v)}
+                  autoFocus
+                  secure
+                  digitColor="white"
+                />
+
+                <TouchableOpacity
+                  onPress={() => onSubmitPin(pin)}
+                  disabled={loading}
+                  style={{
+                    width: "80%",
+                    paddingVertical: 14,
+                    paddingHorizontal: 20,
+                    backgroundColor: "#fff",
+                    borderRadius: 999,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    marginTop: 32,
+                  }}
+                >
+                  <Text
+                    style={{
+                      fontFamily: "semibold",
+                      fontWeight: "600",
+                      fontSize: 18,
+                      color: "#000",
+                    }}
+                  >
+                    {loading ? "Unlocking…" : "Unlock"}
+                  </Text>
+                </TouchableOpacity>
+              </>
+            )}
+          </View>
         </View>
-      </BlurView>
+      )}
     </View>
   );
 };

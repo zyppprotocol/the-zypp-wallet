@@ -9,6 +9,8 @@ import {
 } from "@/components/ui";
 import { IconSymbol } from "@/components/ui/IconSymbol";
 import { useNetworkConnection } from "@/hooks/useNetworkConnection";
+import useUser from "@/hooks/useUser";
+import * as Solana from "@/lib/solana";
 import {
   signIntentWithBiometric,
   signIntentWithPin,
@@ -21,10 +23,11 @@ import {
 } from "@/lib/solana/delivery-methods";
 import { buildTransactionIntent } from "@/lib/solana/intent-builder";
 import { encryptIntent } from "@/lib/solana/intent-encryption";
+import { getTokenAccounts, getUSDCBalance } from "@/lib/solana/token-utils";
 import { queueOfflineTransaction } from "@/lib/storage/offline-queue";
 import { SecureStorage } from "@/lib/storage/secure-storage";
 import type { TransactionIntent } from "@/lib/storage/types";
-import { Ionicons } from "@expo/vector-icons";
+import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import { useRouter } from "expo-router";
 import React, { useState } from "react";
@@ -71,47 +74,92 @@ export const Send = () => {
   );
   const [showPINInput, setShowPINInput] = useState(false);
   const [pin, setPin] = useState("");
+  const { user } = useUser();
   const [userPublicKey, setUserPublicKey] = useState<string>("");
+
+  // Token & Balance State
+  const [tokens, setTokens] = useState<any[]>([]);
+  const [selectedToken, setSelectedToken] = useState<any>({
+    symbol: "USDC",
+    name: "USD Coin",
+    balance: 0,
+    decimals: 6,
+    imageSource: require("@/assets/images/usdc-icon.png"),
+  });
+  const [isTokenModalVisible, setIsTokenModalVisible] = useState(false);
+  const [balLoading, setBalLoading] = useState(false);
 
   // QR code display
   const [qrCodeData, setQRCodeData] = useState<string | null>(null);
   const [showQRModal, setShowQRModal] = useState(false);
-  const [nearbyUsers] = useState<NearbyUser[]>([
-    {
-      id: "1",
-      zyppUserId: "alice.zypp",
-      profileImageUrl: "../../assets/images/user.png",
-      solanaPublicKey: "12345678901234567890123456789012345678901",
-    },
-    {
-      id: "2",
-      zyppUserId: "bob.zypp",
-      profileImageUrl: "../../assets/images/user.png",
-      solanaPublicKey: "abcdefghijklmnopqrstuvwxyzabcdefghijklmno",
-    },
-    {
-      id: "3",
-      zyppUserId: "charlie.zypp",
-      profileImageUrl: "../../assets/images/user.png",
-      solanaPublicKey: "xyzabc1234567890xyzabc1234567890xyzabc12",
-    },
-  ]);
+  const [nearbyUsers, setNearbyUsers] = useState<NearbyUser[]>([]);
+  const [isScanning, setIsScanning] = useState(false);
 
-  // Load user public key on mount
+  // Load user public key and tokens on mount
   React.useEffect(() => {
-    const loadUserPublicKey = async () => {
+    let mounted = true;
+    const loadData = async () => {
       try {
-        const key = await SecureStorage.getPublicKey();
-        const publicKey = Array.from(key)
-          .map((b) => b.toString(16).padStart(2, "0"))
-          .join("")
-          .substring(0, 43); // Mock base58 format
-        setUserPublicKey(publicKey);
+        const pk = await Solana.getPublicKeyBase58();
+        if (mounted) setUserPublicKey(pk);
+
+        setBalLoading(true);
+        const [lamports, usdc, accounts] = await Promise.all([
+          Solana.getBalance(pk),
+          getUSDCBalance(pk),
+          getTokenAccounts(pk),
+        ]);
+
+        if (!mounted) return;
+
+        const solToken = {
+          symbol: "SOL",
+          name: "Solana",
+          balance: lamports / 1e9,
+          decimals: 9,
+          imageSource: require("@/assets/images/sol-icon.png"),
+        };
+
+        const usdcToken = {
+          symbol: "USDC",
+          name: "USD Coin",
+          balance: usdc,
+          decimals: 6,
+          imageSource: require("@/assets/images/usdc-icon.png"),
+        };
+
+        // Filter out USDC from other accounts since we handle it explicitly
+        const otherTokens = accounts
+          .filter(
+            (acc: any) =>
+              acc.mint !== "EPjFWaJY3uyenQYVtEKVwFxupnideipeBeP8FqwADUU"
+          )
+          .map((acc: any) => ({
+            symbol: "TOKEN", // We'd need a registry for names/symbols in a real app
+            name: "Unknown Token",
+            balance: acc.balance,
+            decimals: acc.decimals,
+            mint: acc.mint,
+          }));
+
+        const allTokens = [usdcToken, solToken, ...otherTokens];
+        setTokens(allTokens);
+
+        // Update selected token balance if it's in the list
+        const current = allTokens.find(
+          (t) => t.symbol === selectedToken.symbol
+        );
+        if (current) setSelectedToken(current);
       } catch (err) {
-        console.warn("Failed to load public key:", err);
+        console.warn("Failed to load user data:", err);
+      } finally {
+        if (mounted) setBalLoading(false);
       }
     };
-    loadUserPublicKey();
+    loadData();
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   // Load available delivery methods
@@ -133,15 +181,34 @@ export const Send = () => {
     loadDeliveryMethods();
   }, []);
 
-  const handleStartScan = (mode: ScanMode) => {
+  const handleStartScan = async (mode: ScanMode) => {
     setScanMode(mode);
     setShowScanModal(true);
 
-    // Only simulate scan for nearby users (not for QR code which uses real camera)
     if (mode === "nearby") {
-      setTimeout(() => {
-        setScanMode("nearby");
-      }, 3000);
+      setIsScanning(true);
+      setNearbyUsers([]);
+      try {
+        console.log("[Send] Starting real BLE scan...");
+        const devices = await scanBLEDevices(10000); // 10 second scan
+
+        // Map DeviceInfo to NearbyUser
+        const discoveredUsers: NearbyUser[] = devices.map((device) => ({
+          id: device.id,
+          zyppUserId: device.name, // The name contains the .zypp ID
+          solanaPublicKey: "", // We'll need a handshake to get the PK, or parse from name if encoded
+        }));
+
+        setNearbyUsers(discoveredUsers);
+      } catch (err) {
+        console.error("[Send] BLE scan failed:", err);
+        Alert.alert(
+          "Scan Error",
+          "Failed to scan for nearby users. Make sure Bluetooth is enabled."
+        );
+      } finally {
+        setIsScanning(false);
+      }
     }
   };
 
@@ -153,20 +220,21 @@ export const Send = () => {
       throw new Error("Amount and recipient required");
     }
 
-    const amountBigInt = BigInt(Math.floor(parseFloat(amount) * 1e9)); // Convert to lamports
+    const multiplier = Math.pow(10, selectedToken.decimals);
+    const amountBigInt = BigInt(Math.floor(parseFloat(amount) * multiplier));
 
     return buildTransactionIntent({
       type: "payment",
       sender: userPublicKey,
       recipient: selectedUser.solanaPublicKey,
       amount: amountBigInt,
-      token: "USDC",
+      token: selectedToken.symbol,
       connectivity:
         selectedDeliveryMethod === "bluetooth"
           ? "bluetooth"
           : selectedDeliveryMethod === "nfc"
-            ? "nfc"
-            : "mesh",
+          ? "nfc"
+          : "mesh",
       memo: `Payment to ${selectedUser.zyppUserId}`,
     });
   };
@@ -215,7 +283,9 @@ export const Send = () => {
       // BLE or NFC delivery - proceed to signing
       Alert.alert(
         "Ready to Deliver",
-        `Ready to send via ${selectedDeliveryMethod === "bluetooth" ? "Bluetooth" : "NFC"}. Tap continue to proceed with biometric signing.`,
+        `Ready to send via ${
+          selectedDeliveryMethod === "bluetooth" ? "Bluetooth" : "NFC"
+        }. Tap continue to proceed with biometric signing.`,
         [
           {
             text: "Cancel",
@@ -378,8 +448,31 @@ export const Send = () => {
     }
   };
 
-  const handleSelectUser = (user: NearbyUser) => {
-    setSelectedUser(user);
+  const handleSelectUser = async (user: NearbyUser) => {
+    // If we don't have a public key yet (from BLE scan), we might need to "resolve" it
+    // In a real production app, we would connect to the device here to get its PK
+    if (!user.solanaPublicKey && user.id && !user.id.startsWith("qr_")) {
+      setIsProcessing(true);
+      try {
+        // Mock identity resolution for now - in production this would be a BLE read
+        // For the sake of the demo, we'll assign a mock key if it's missing
+        const resolvedUser = {
+          ...user,
+          solanaPublicKey:
+            "Dev" +
+            user.zyppUserId.replace(/[^a-zA-Z0-9]/g, "") +
+            "ResolvedKey1234567890",
+        };
+        setSelectedUser(resolvedUser);
+      } catch (err) {
+        Alert.alert("Error", "Failed to resolve user identity");
+      } finally {
+        setIsProcessing(false);
+      }
+    } else {
+      setSelectedUser(user);
+    }
+
     setShowScanModal(false);
     setScanMode(null);
   };
@@ -399,37 +492,61 @@ export const Send = () => {
     handleSelectUser(scannedUser);
   };
 
-  const renderUserCard = ({ item }: { item: NearbyUser }) => (
-    <TouchableOpacity
-      onPress={() => handleSelectUser(item)}
-      className={`mr-3 rounded-2xl p-3 items-center ${
-        selectedUser?.id === item.id
-          ? "bg-green-500/20 border-2 border-green-500"
-          : "bg-black/5 dark:bg-white/5"
-      }`}
-    >
-      <Image
-        source={{
-          uri: item.profileImageUrl || "./assets/images/user.png",
-        }}
-        style={{
-          width: 40,
-          height: 40,
-          borderRadius: 20,
-          marginBottom: 8,
-        }}
-      />
-      <Text className="text-xs font-semibold dark:text-white text-black text-center max-w-[80px]">
-        {item.zyppUserId}
-      </Text>
-    </TouchableOpacity>
-  );
+  const renderUserCard = ({ item }: { item: NearbyUser }) => {
+    const isSelected = selectedUser?.id === item.id;
+    return (
+      <TouchableOpacity
+        onPress={() => handleSelectUser(item)}
+        className={`mr-4 rounded-3xl p-[2px] items-center transition-all ${
+          isSelected ? "bg-primary" : "bg-black/10 dark:bg-white/10"
+        }`}
+      >
+        <View
+          className={`rounded-[22px] p-4 items-center w-28 ${
+            isSelected ? "bg-white dark:bg-black" : "bg-transparent"
+          }`}
+        >
+          <View className="relative">
+            <Image
+              source={
+                item.profileImageUrl
+                  ? { uri: item.profileImageUrl }
+                  : require("@/assets/images/user.png")
+              }
+              style={{
+                width: 56,
+                height: 56,
+                borderRadius: 28,
+                marginBottom: 12,
+              }}
+              className="bg-black/5 dark:bg-white/5"
+            />
+            {isSelected && (
+              <View className="absolute -right-1 -bottom-1 bg-primary rounded-full p-1 border-2 border-white dark:border-black">
+                <Ionicons name="checkmark" size={12} color="black" />
+              </View>
+            )}
+          </View>
+          <Text
+            numberOfLines={1}
+            className={`text-xs font-semibold tracking-tight text-center ${
+              isSelected
+                ? "dark:text-white text-black"
+                : "opacity-60 dark:text-white text-black"
+            }`}
+          >
+            {item.zyppUserId}
+          </Text>
+        </View>
+      </TouchableOpacity>
+    );
+  };
 
   return (
     <SafeAreaView className="relative flex-1">
       {colorScheme === "dark" ? (
         <Image
-          source={require("@/assets/images/home-gradient.png")}
+          source={require("@/assets/images/home-gradient-dark.png")}
           style={{
             position: "absolute",
             top: 0,
@@ -471,18 +588,24 @@ export const Send = () => {
             <Text className="font-medium dark:text-white text-black tracking-tighter ">
               From
             </Text>
-            <TouchableOpacity className="flex-row justify-between items-center bg-white dark:bg-black rounded-full border border-white/10 px-2 pr-3 py-2">
+            <TouchableOpacity
+              onPress={() => setIsTokenModalVisible(true)}
+              className="flex-row justify-between items-center bg-white/30 dark:bg-black/30 rounded-full border border-white/10 px-2 pr-3 py-2"
+            >
               <Image
-                source={require("@/assets/images/usdc-icon.png")}
+                source={
+                  selectedToken.imageSource ||
+                  require("@/assets/images/sol-icon.png")
+                }
                 style={{
                   borderRadius: 16,
                   width: 20,
                   height: 20,
                 }}
-                className="w-5 h-5 mr-2 scale-50 rounded-full"
+                className="w-5 h-5 mr-1 rounded-full"
               />
               <Text className="dark:text-white text-black ml-2 font-medium text-md">
-                USDC
+                {selectedToken.symbol}
               </Text>
               <Ionicons
                 name="chevron-down-outline"
@@ -496,7 +619,12 @@ export const Send = () => {
           {/* Amount Field */}
           <View className="flex flex-col items-end h-full justify-between flex-1 ml-4">
             <Text className="font-medium dark:text-white text-black tracking-tight opacity-70">
-              Balance: $1,365
+              Balance:{" "}
+              {balLoading
+                ? "..."
+                : `${selectedToken.balance.toFixed(
+                    selectedToken.symbol === "SOL" ? 4 : 2
+                  )} ${selectedToken.symbol}`}
             </Text>
             <View className="33">
               <TextInput
@@ -507,6 +635,9 @@ export const Send = () => {
                 placeholderTextColor={
                   colorScheme === "dark" ? "#ffffff60" : "#00000060"
                 }
+                style={{
+                  fontFamily: "regular",
+                }}
                 className="text-4xl font-bold dark:text-white text-black tracking-tighter flex-1"
               />
             </View>
@@ -521,7 +652,7 @@ export const Send = () => {
         {/* Scan Status & Users List */}
         <View className="mb-6">
           <View className="flex-row items-center mb-4 gap-2">
-            {scanMode === "nearby" ? (
+            {isScanning ? (
               <>
                 <ActivityIndicator
                   size="small"
@@ -533,8 +664,11 @@ export const Send = () => {
               </>
             ) : (
               <Text className="text-sm dark:text-white text-black opacity-70">
-                {nearbyUsers.length} user{nearbyUsers.length !== 1 ? "s" : ""}{" "}
-                found
+                {nearbyUsers.length === 0
+                  ? "No users found"
+                  : `${nearbyUsers.length} user${
+                      nearbyUsers.length !== 1 ? "s" : ""
+                    } found`}
               </Text>
             )}
           </View>
@@ -659,6 +793,75 @@ export const Send = () => {
         </TouchableOpacity>
       </ScrollView>
 
+      {/* Token Selector Modal */}
+      <Modal
+        visible={isTokenModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setIsTokenModalVisible(false)}
+      >
+        <TouchableOpacity
+          activeOpacity={1}
+          onPress={() => setIsTokenModalVisible(false)}
+          className="flex-1 bg-black/40 justify-end"
+        >
+          <View className="w-full bg-white dark:bg-[#121212] rounded-t-[40px] p-8 pb-12">
+            <View className="w-12 h-1.5 bg-neutral-200 dark:bg-neutral-800 rounded-full self-center mb-8" />
+
+            <Text className="text-2xl font-semibold dark:text-white text-black mb-6 tracking-tight">
+              Select Token
+            </Text>
+
+            <View className="gap-3">
+              {tokens.map((token, idx) => (
+                <TouchableOpacity
+                  key={idx}
+                  onPress={() => {
+                    setSelectedToken(token);
+                    setIsTokenModalVisible(false);
+                  }}
+                  className={`flex-row items-center justify-between p-4 rounded-2xl border ${
+                    selectedToken.symbol === token.symbol
+                      ? "bg-primary/10 border-primary"
+                      : "bg-black/5 dark:bg-white/5 border-transparent"
+                  }`}
+                >
+                  <View className="flex-row items-center gap-4">
+                    <View className="w-12 h-12 rounded-full items-center justify-center overflow-hidden">
+                      {token.imageSource ? (
+                        <Image
+                          source={token.imageSource}
+                          style={{ width: 35, height: 35 }}
+                        />
+                      ) : (
+                        <MaterialCommunityIcons
+                          name="currency-usd"
+                          size={24}
+                          color={colorScheme === "dark" ? "white" : "black"}
+                        />
+                      )}
+                    </View>
+                    <View>
+                      <Text className="font-semibold text-lg dark:text-white text-black">
+                        {token.name}
+                      </Text>
+                      <Text className="text-sm opacity-50 dark:text-white text-black">
+                        {token.symbol}
+                      </Text>
+                    </View>
+                  </View>
+                  <View className="items-end">
+                    <Text className="font-semibold text-lg dark:text-white text-black">
+                      {token.balance.toFixed(token.symbol === "SOL" ? 4 : 2)}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
       {/* QR Scanner - Always Modal */}
       <QRScanner
         visible={scanMode === "qr_code"}
@@ -749,7 +952,7 @@ export const Send = () => {
               {/* Cancel Button */}
               <TouchableOpacity
                 onPress={() => setShowDeliveryOptions(false)}
-                className="w-full bg-black/10 dark:bg-white/10 rounded-full py-3"
+                className="w-full bg-black/10 dark:bg-black/20 rounded-full py-3"
               >
                 <Text className="text-center dark:text-white text-black font-semibold">
                   Cancel
@@ -839,7 +1042,7 @@ export const Send = () => {
                   setShowPINInput(false);
                   setPin("");
                 }}
-                className="w-full bg-black/10 dark:bg-white/10 rounded-full py-3"
+                className="w-full bg-black/10 dark:bg-black/20 rounded-full py-3"
               >
                 <Text className="text-center dark:text-white text-black font-semibold">
                   Cancel
@@ -916,7 +1119,7 @@ export const Send = () => {
                   setShowQRModal(false);
                   setQRCodeData(null);
                 }}
-                className="w-full bg-black/10 dark:bg-white/10 rounded-full py-3"
+                className="w-full bg-black/10 dark:bg-black/20 rounded-full py-3"
               >
                 <Text className="text-center dark:text-white text-black font-semibold">
                   Cancel
@@ -960,7 +1163,7 @@ export const Send = () => {
               </TouchableOpacity>
             </View>
 
-            {scanMode === "nearby" && nearbyUsers.length === 0 ? (
+            {isScanning ? (
               <>
                 {/* Scanning Animation */}
                 <View className="items-center gap-4 mb-8">
@@ -974,7 +1177,8 @@ export const Send = () => {
                     Scanning for nearby users...
                   </Text>
                   <Text className="dark:text-white/60 text-black/60 text-sm text-center">
-                    Make sure nearby users have their wallets open
+                    Make sure nearby users have their wallets open and are on
+                    the Receive tab
                   </Text>
                 </View>
 
@@ -983,18 +1187,19 @@ export const Send = () => {
                   onPress={() => {
                     setShowScanModal(false);
                     setScanMode(null);
+                    setIsScanning(false);
                   }}
-                  className="w-full bg-black/10 dark:bg-white/10 rounded-full py-3 items-center"
+                  className="w-full bg-black/10 dark:bg-black/20 rounded-full py-3 items-center"
                 >
                   <Text className="dark:text-white text-black font-semibold">
-                    Cancel
+                    Cancel Scan
                   </Text>
                 </TouchableOpacity>
               </>
             ) : (
               <>
                 {/* Results: Found Users */}
-                {nearbyUsers.length > 0 && (
+                {nearbyUsers.length > 0 ? (
                   <View className="items-center gap-3 mb-6">
                     <View className="w-12 h-12 bg-green-500/10 rounded-full items-center justify-center">
                       <Ionicons
@@ -1008,53 +1213,76 @@ export const Send = () => {
                       {nearbyUsers.length !== 1 ? "s" : ""}
                     </Text>
                   </View>
+                ) : (
+                  <View className="items-center gap-4 mb-10 mt-4">
+                    <View className="w-16 h-16 bg-red-500/10 rounded-full items-center justify-center">
+                      <Ionicons
+                        name="search-outline"
+                        size={32}
+                        color="#ef4444"
+                      />
+                    </View>
+                    <View className="gap-1 items-center">
+                      <Text className="dark:text-white text-black font-semibold text-center text-lg">
+                        No nearby users found
+                      </Text>
+                      <Text className="dark:text-white/60 text-black/60 text-sm text-center px-6">
+                        Make sure the other person is on the "Receive" screen
+                        and has Bluetooth enabled.
+                      </Text>
+                    </View>
+                  </View>
                 )}
 
                 {/* Users List */}
-                <ScrollView
-                  className="mb-6"
-                  showsVerticalScrollIndicator={false}
-                >
-                  {nearbyUsers.map((user) => (
-                    <TouchableOpacity
-                      key={user.id}
-                      onPress={() => handleSelectUser(user)}
-                      className="flex-row items-center gap-3 bg-black/5 dark:bg-white/5 rounded-2xl p-4 mb-3"
-                    >
-                      <Image
-                        source={{
-                          uri:
-                            user.profileImageUrl ||
-                            "https://via.placeholder.com/50",
-                        }}
-                        style={{
-                          width: 50,
-                          height: 50,
-                          borderRadius: 25,
-                        }}
-                      />
-                      <View className="flex-1">
-                        <Text className="dark:text-white text-black font-semibold">
-                          {user.zyppUserId}
-                        </Text>
-                        <Text className="dark:text-white/60 text-black/60 text-xs">
-                          {user.solanaPublicKey.substring(0, 12)}...
-                        </Text>
-                      </View>
-                      <Ionicons
-                        name="chevron-forward"
-                        size={20}
-                        color={colorScheme === "dark" ? "#fff" : "#000"}
-                      />
-                    </TouchableOpacity>
-                  ))}
-                </ScrollView>
+                {nearbyUsers.length > 0 && (
+                  <ScrollView
+                    className="mb-6 h-64"
+                    showsVerticalScrollIndicator={false}
+                  >
+                    {nearbyUsers.map((user) => (
+                      <TouchableOpacity
+                        key={user.id}
+                        onPress={() => handleSelectUser(user)}
+                        className="flex-row items-center gap-3 bg-black/5 dark:bg-white/5 rounded-2xl p-4 mb-3"
+                      >
+                        <Image
+                          source={{
+                            uri:
+                              user.profileImageUrl ||
+                              "https://via.placeholder.com/50",
+                          }}
+                          style={{
+                            width: 50,
+                            height: 50,
+                            borderRadius: 25,
+                          }}
+                        />
+                        <View className="flex-1">
+                          <Text className="dark:text-white text-black font-semibold">
+                            {user.zyppUserId}
+                          </Text>
+                          <Text className="dark:text-white/60 text-black/60 text-xs">
+                            {user.solanaPublicKey
+                              ? `${user.solanaPublicKey.substring(0, 12)}...`
+                              : "Resolve to view address"}
+                          </Text>
+                        </View>
+                        <Ionicons
+                          name="chevron-forward"
+                          size={20}
+                          color={colorScheme === "dark" ? "#fff" : "#000"}
+                        />
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                )}
 
                 {/* Action Buttons */}
                 <View className="gap-2">
                   <TouchableOpacity
                     onPress={() => handleStartScan("nearby")}
-                    className="w-full bg-black/10 dark:bg-white/10 rounded-full py-3 items-center flex-row justify-center gap-2"
+                    className="w-full bg-black/10 dark:bg-black/20 rounded-full py-3 items-center flex-row justify-center gap-2"
                   >
                     <Ionicons
                       name="refresh"

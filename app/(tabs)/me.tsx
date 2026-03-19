@@ -1,3 +1,4 @@
+import PrivacyCheckup from "@/components/PrivacyCheckup";
 import {
   SafeAreaView,
   ScrollView,
@@ -14,7 +15,7 @@ import {
   updateUserProfileImage,
 } from "@/lib/auth";
 import * as Solana from "@/lib/solana";
-import { Ionicons } from "@expo/vector-icons";
+import { Ionicons, MaterialIcons } from "@expo/vector-icons";
 import { setStringAsync } from "expo-clipboard";
 import { useRouter } from "expo-router";
 import React, { useCallback, useEffect, useState } from "react";
@@ -22,6 +23,7 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  Platform,
   RefreshControl,
   TouchableOpacity,
 } from "react-native";
@@ -36,6 +38,7 @@ export const Me = () => {
   const [balanceSol, setBalanceSol] = useState<number | null>(null);
   const [balLoading, setBalLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [showCheckup, setShowCheckup] = useState(false);
 
   const isOnline = useIsOnline();
 
@@ -183,7 +186,7 @@ export const Me = () => {
     <SafeAreaView className="relative flex-1">
       {colorScheme === "dark" ? (
         <Image
-          source={require("@/assets/images/home-gradient.png")}
+          source={require("@/assets/images/home-gradient-dark.png")}
           style={{
             position: "absolute",
             top: 0,
@@ -272,8 +275,8 @@ export const Me = () => {
                   {balLoading
                     ? "…"
                     : balanceSol != null
-                      ? `${balanceSol.toFixed(4)} SOL`
-                      : "—"}
+                    ? `${balanceSol.toFixed(4)} SOL`
+                    : "—"}
                 </Text>
                 <Text className="text-sm opacity-70 mt-1">
                   {user?.solanaPublicKey
@@ -365,17 +368,28 @@ export const Me = () => {
               onPress={() => router.push("/activity")}
               className="flex-1 dark:bg-white/5 bg-black/5 rounded-2xl p-4 items-center"
             >
+            {Platform.OS === "ios" ? (
               <IconSymbol
                 name="chart.bar.fill"
                 size={24}
                 color={colorScheme === "dark" ? "#fff" : "#000"}
               />
+            ) : (
+              <MaterialIcons
+                name="history"
+                size={24}
+                color={colorScheme === "dark" ? "#fff" : "#000"}
+              />
+            )}
               <Text className="mt-2">Activity</Text>
             </TouchableOpacity>
           </View>
 
           {/* Privacy Checkup Card */}
-          <TouchableOpacity className="w-full rounded-2xl dark:bg-white/5 bg-black/5 p-4 mb-6 flex-row items-center justify-between">
+          <TouchableOpacity
+            onPress={() => setShowCheckup(true)}
+            className="w-full rounded-2xl dark:bg-white/5 bg-black/5 p-4 mb-6 flex-row items-center justify-between"
+          >
             <View className="flex-1 pr-4">
               <Text className="font-semibold mb-1">Privacy checkup</Text>
               <Text className="text-sm opacity-70">
@@ -449,7 +463,9 @@ export const Me = () => {
             <TouchableOpacity
               onPress={handleSignOut}
               disabled={loading}
-              className={`w-full rounded-full py-3 ${loading ? "bg-neutral-400" : "bg-red-600"} items-center justify-center mt-4`}
+              className={`w-full rounded-full py-3 ${
+                loading ? "bg-neutral-400" : "bg-red-600"
+              } items-center justify-center mt-4`}
             >
               <Text className="text-white font-semibold">
                 {loading ? "Signing out…" : "Sign out"}
@@ -459,6 +475,11 @@ export const Me = () => {
         </View>
         <View className="h-20" />
       </ScrollView>
+
+      <PrivacyCheckup
+        visible={showCheckup}
+        onClose={() => setShowCheckup(false)}
+      />
     </SafeAreaView>
   );
 };

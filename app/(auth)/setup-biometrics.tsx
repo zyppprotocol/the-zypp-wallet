@@ -71,6 +71,18 @@ export default function SetupBiometrics() {
         return;
       }
 
+      // Update wallet config to mark biometric as enabled
+      try {
+        const cfg = await SecureStorage.getWalletConfig();
+        await SecureStorage.setWalletConfig({
+          ...cfg,
+          biometricEnabled: true,
+          pinEnabled: true,
+        });
+      } catch (err) {
+        console.warn("Failed to update wallet config:", err);
+      }
+
       Alert.alert(
         "Success",
         "Biometric unlock enabled. You can now use your biometrics to unlock your wallet.",
@@ -144,7 +156,9 @@ export default function SetupBiometrics() {
               <TouchableOpacity
                 disabled={loading}
                 onPress={enableBiometrics}
-                className={`w-full rounded-full py-4 ${loading ? "bg-neutral-400" : "bg-black dark:bg-primary"} flex flex-row items-center justify-center`}
+                className={`w-full rounded-full py-4 ${
+                  loading ? "bg-neutral-400" : "bg-black dark:bg-primary"
+                } flex flex-row items-center justify-center`}
               >
                 <IconSymbol
                   name="faceid"
@@ -164,7 +178,7 @@ export default function SetupBiometrics() {
                   setPinConfirm("");
                   setMode("pin");
                 }}
-                className={`w-full rounded-full py-4 bg-black/10 dark:bg-white/10 flex flex-row items-center justify-center`}
+                className={`w-full rounded-full py-4 bg-black/10 dark:bg-black/20 flex flex-row items-center justify-center`}
               >
                 <IconSymbol
                   name="lock.fill"
@@ -228,7 +242,11 @@ export default function SetupBiometrics() {
                 }
                 setMode("confirm");
               }}
-              className={`w-full rounded-full py-4 ${loading || pin.length < 4 ? "bg-neutral-400" : "bg-black dark:bg-primary"} flex flex-row items-center justify-center`}
+              className={`w-full rounded-full py-4 ${
+                loading || pin.length < 4
+                  ? "bg-neutral-400"
+                  : "bg-black dark:bg-primary"
+              } flex flex-row items-center justify-center`}
             >
               <IconSymbol
                 name="arrow.up.right.bottomleft.rectangle.fill"
@@ -338,6 +356,23 @@ export default function SetupBiometrics() {
                     return;
                   }
                   await SecureStorage.changePIN(current, pin);
+
+                  // Disable biometrics since user chose PIN-only mode, and MARK PIN AS ENABLED
+                  try {
+                    const cfg = await SecureStorage.getWalletConfig();
+                    const updated = await SecureStorage.setWalletConfig({
+                      ...cfg,
+                      biometricEnabled: false,
+                      pinEnabled: true,
+                    });
+                    console.log(
+                      "PIN established and biometric disabled in config:",
+                      updated
+                    );
+                  } catch (err) {
+                    console.warn("Failed to update wallet config:", err);
+                  }
+
                   Alert.alert(
                     "Success",
                     "PIN set successfully. You can use this PIN to unlock your wallet.",
@@ -358,7 +393,11 @@ export default function SetupBiometrics() {
                   setLoading(false);
                 }
               }}
-              className={`w-full rounded-full py-4 ${loading || pinConfirm.length < 4 ? "bg-neutral-400" : "bg-black dark:bg-primary"} flex flex-row items-center justify-center`}
+              className={`w-full rounded-full py-4 ${
+                loading || pinConfirm.length < 4
+                  ? "bg-neutral-400"
+                  : "bg-black dark:bg-primary"
+              } flex flex-row items-center justify-center`}
             >
               <IconSymbol
                 name="checkmark.circle.fill"
@@ -376,6 +415,32 @@ export default function SetupBiometrics() {
               className="mt-4 items-center"
             >
               <Text className="text-white/70">Back</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={async () => {
+                Alert.alert(
+                  "Reset Wallet?",
+                  "This will delete your local wallet and username. You will need to start over.",
+                  [
+                    { text: "Cancel", style: "cancel" },
+                    {
+                      text: "Reset Everything",
+                      style: "destructive",
+                      onPress: async () => {
+                        const { deleteUser } = require("@/lib/auth");
+                        await deleteUser();
+                        router.replace("/welcome");
+                      },
+                    },
+                  ]
+                );
+              }}
+              className="mt-12 items-center"
+            >
+              <Text className="text-red-500/60 text-sm">
+                Reset & Start Over
+              </Text>
             </TouchableOpacity>
           </>
         )}

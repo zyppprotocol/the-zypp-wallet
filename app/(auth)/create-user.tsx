@@ -1,11 +1,10 @@
 import { SafeAreaView, Text, useColorScheme, View } from "@/components/ui";
 import { IconSymbol } from "@/components/ui/IconSymbol.ios";
-import { createUser, finalizeUser, getUser } from "@/lib/auth";
+import { createUser, finalizeUser, getUser, recoverUser } from "@/lib/auth";
 import * as Solana from "@/lib/solana";
 import { Image } from "expo-image";
 import { useRouter } from "expo-router";
-import * as SecureStore from "expo-secure-store";
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import { Alert, TextInput, TouchableOpacity } from "react-native";
 import { SystemBars } from "react-native-edge-to-edge";
 
@@ -13,27 +12,35 @@ export default function CreateUser() {
   const router = useRouter();
   const [username, setUsername] = useState("");
   const [loading, setLoading] = useState(false);
-  const [newWalletFlag, setNewWalletFlag] = useState(false);
 
-  useEffect(() => {
-    let mounted = true;
-    (async () => {
-      try {
-        const v = await SecureStore.getItemAsync("zypp_new_wallet_flow");
-        if (!mounted) return;
-        if (v === "1") {
-          setNewWalletFlag(true);
-          // remove the flag
-          await SecureStore.deleteItemAsync("zypp_new_wallet_flow");
-        }
-      } catch {
-        // ignore
-      }
-    })();
-    return () => {
-      mounted = false;
-    };
-  }, []);
+  const handleRecover = async () => {
+    if (!username || username.trim().length < 3) {
+      Alert.alert(
+        "Invalid username",
+        "Please enter a username to recover"
+      );
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const fullHandle = `${username.trim()}.zypp`;
+      const recovered = await recoverUser(fullHandle);
+      console.log("Recovered user:", recovered);
+      
+      Alert.alert(
+        "Welcome back!",
+        `Successfully recovered ${recovered.zyppUserId}. Now let's set up your security.`
+      );
+      
+      router.replace("/setup-biometrics");
+    } catch (err) {
+      console.error("Error recovering user:", err);
+      Alert.alert("Recovery failed", "We couldn't find an account with that username. Please double check and try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleCreate = async () => {
     if (!username || username.trim().length < 3) {
@@ -64,11 +71,9 @@ export default function CreateUser() {
         const user = await finalizeUser(zyppUsername);
         console.log("Finalized user:", user);
         Alert.alert("Welcome", `Account ${user.zyppUserId} created`);
-        if (newWalletFlag) {
-          router.replace("/setup-biometrics");
-        } else {
-          router.replace("/wallet");
-        }
+
+        // Always route to setup-biometrics to ensure security credentials (PIN/Bio) are properly established
+        router.replace("/setup-biometrics");
         return;
       } catch (e) {
         // No wallet exists -> create user + wallet
@@ -168,7 +173,7 @@ export default function CreateUser() {
         <TouchableOpacity
           disabled={loading}
           onPress={handleCreate}
-          className={`w-full rounded-full py-4 ${loading ? "bg-neutral-400" : "bg-black dark:bg-primary"} flex flex-row items-center justify-center`}
+          className={`w-full rounded-full py-4 mb-3 ${loading ? "bg-neutral-400" : "bg-black dark:bg-primary"} flex flex-row items-center justify-center`}
         >
           <IconSymbol
             name="wallet.bifold.fill"
@@ -178,6 +183,22 @@ export default function CreateUser() {
           />
           <Text className="text-white dark:text-black text-lg font-semibold tracking-tight ml-3">
             {loading ? "Creating…" : "Create Account"}
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          disabled={loading}
+          onPress={handleRecover}
+          className="w-full rounded-full py-4 border border-black/10 dark:border-white/20 flex flex-row items-center justify-center"
+        >
+          <IconSymbol
+            name="arrow.counterclockwise"
+            size={18}
+            color={colorScheme === "dark" ? "white" : "black"}
+            style={{ marginBottom: 0, opacity: 0.7 }}
+          />
+          <Text className="text-black dark:text-white text-lg font-semibold tracking-tight ml-3 opacity-70">
+            {loading ? "Checking…" : "Recover existing"}
           </Text>
         </TouchableOpacity>
       </View>

@@ -15,6 +15,7 @@
 import { Connection, PublicKey, clusterApiUrl } from "@solana/web3.js";
 import * as SecureStore from "expo-secure-store";
 import { TransactionIntent, TransactionStatus } from "../storage/types";
+import { log } from "../utils/logger";
 
 // Well-known Solana program IDs
 const SYSTEM_PROGRAM_ID = "11111111111111111111111111111111";
@@ -76,7 +77,7 @@ function parseSystemTransfer(
       type: "payment",
     };
   } catch (err) {
-    console.warn("Failed to parse System Transfer:", err);
+    log.warn("Failed to parse System Transfer", err);
     return null;
   }
 }
@@ -148,7 +149,7 @@ function parseTokenTransfer(
       type: "payment",
     };
   } catch (err) {
-    console.warn("Failed to parse Token Transfer:", err);
+    log.warn("Failed to parse Token Transfer", err);
     return null;
   }
 }
@@ -199,7 +200,7 @@ function extractTransactionData(
 
     return null;
   } catch (err) {
-    console.warn("Failed to extract transaction data:", err);
+    log.warn("Failed to extract transaction data", err);
     return null;
   }
 }
@@ -230,7 +231,7 @@ async function getCachedTransactionHistory(
 
     return data.transactions;
   } catch (err) {
-    console.warn("Failed to get cached transaction history:", err);
+    log.warn("Failed to get cached transaction history", err);
     return null;
   }
 }
@@ -255,7 +256,7 @@ async function setCachedTransactionHistory(
     };
     await SecureStore.setItemAsync(key, JSON.stringify(data));
   } catch (err) {
-    console.warn("Failed to cache transaction history:", err);
+    log.warn("Failed to cache transaction history", err);
   }
 }
 
@@ -275,7 +276,7 @@ async function fetchConfirmedSignatures(
 
     return signatures.map((sig) => sig.signature);
   } catch (err) {
-    console.error("Failed to fetch transaction signatures:", err);
+    log.error("Failed to fetch transaction signatures", err);
     return [];
   }
 }
@@ -343,7 +344,7 @@ async function parseTransaction(
 
     return intent;
   } catch (err) {
-    console.warn("Failed to parse transaction:", signature, err);
+    log.warn("Failed to parse transaction", err, { signature });
     return null;
   }
 }
@@ -390,11 +391,13 @@ export async function getTransactionHistory(
     return transactions;
   } catch (err) {
     console.error("Failed to fetch transaction history:", err);
+    log.error("Failed to fetch transaction history", err);
 
     // Try to return cached even if stale
     const cached = await getCachedTransactionHistory(publicKey);
     if (cached) {
       console.info("Returning stale cache due to fetch error");
+      log.info("Returning stale cache due to fetch error");
       return cached;
     }
 
@@ -413,6 +416,7 @@ export async function clearTransactionHistoryCache(
     await SecureStore.deleteItemAsync(key);
   } catch (err) {
     console.warn("Failed to clear transaction history cache:", err);
+    log.warn("Failed to clear transaction history cache", err);
   }
 }
 

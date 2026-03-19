@@ -1,8 +1,8 @@
 /**
  * Solana wallet backend helpers
  * - createWallet: generates a Solana Keypair and stores the secret key in secure storage
- * - getConnection: returns a Connection to devnet
- * - requestAirdrop / getBalance: devnet helpers for testing
+ * - getConnection: returns a Connection to the configured Solana cluster (mainnet/testnet/devnet)
+ * - requestAirdrop / getBalance: cluster helpers for testing (only works on testnet/devnet)
  * - getPublicKeyBase58: returns stored public key in base58
  * - signMessage: signs arbitrary messages using the stored private key (requires PIN)
  *
@@ -12,7 +12,6 @@
  */
 
 import {
-  clusterApiUrl,
   Connection,
   Keypair,
   LAMPORTS_PER_SOL,
@@ -24,7 +23,9 @@ import * as bip39 from "bip39";
 // module-initialization side-effects on platforms where Node shims aren't ready yet.
 import ShaJS from "sha.js";
 import * as nacl from "tweetnacl";
+import { getCurrentCluster, getRpcUrl } from "../config/network";
 import { SecureStorage } from "../storage/secure-storage";
+import { log } from "../utils/logger";
 
 /**
  * Create a new Solana wallet and store its secret key using secure storage.
@@ -32,11 +33,11 @@ import { SecureStorage } from "../storage/secure-storage";
  * Returns the base58 public key.
  */
 export async function createWallet(
-  options: { useBiometric?: boolean; pin?: string } = {}
+  options: { useBiometric?: boolean; pin?: string } = {},
 ) {
   const { useBiometric = false, pin } = options;
 
-  console.debug("createWallet: starting (useBiometric=", useBiometric, ")");
+  log.debug("createWallet: starting", { useBiometric });
   // Generate a Solana keypair (ed25519)
   const kp = Keypair.generate();
 
@@ -50,14 +51,13 @@ export async function createWallet(
     await SecureStorage.initializeSecureStorageFromSecretKey(
       kp.secretKey,
       useBiometric ? "biometric" : pin!,
-      { useBiometric }
+      { useBiometric },
     );
   } catch (err) {
-    console.error(
-      "createWallet: failed to initialize secure storage:",
-      err,
-      err?.stack
-    );
+    log.error("createWallet: failed to initialize secure storage", err, {
+      useBiometric,
+      stack: err instanceof Error ? err.stack : undefined,
+    });
     // Rewrap RangeError with context to make it clear where it originated
     const message = err instanceof Error ? err.message : String(err);
     throw new Error(`initializeSecureStorageFromSecretKey failed: ${message}`);
@@ -67,25 +67,30 @@ export async function createWallet(
 }
 
 /**
- * Return a Connection object to Solana devnet
+ * Return a Connection object to the configured Solana cluster
+ * Supports mainnet-beta, testnet, and devnet via EXPO_PUBLIC_SOLANA_CLUSTER env var
+ * Defaults to devnet
  */
 export async function getConnection() {
-  const url = clusterApiUrl("devnet");
+  const url = getRpcUrl();
+  const cluster = getCurrentCluster();
+  log.debug("getConnection", { cluster, url });
   return new Connection(url, "confirmed");
 }
 
 /**
- * Request airdrop on devnet to the provided public key (base58 or PublicKey)
+ * Request airdrop on the configured cluster to the provided public key (base58 or PublicKey)
+ * Note: Only works on testnet/devnet, will fail on mainnet
  */
 export async function requestAirdrop(
   publicKeyBase58: string,
-  amountSol = 1
+  amountSol = 1,
 ): Promise<string> {
   const conn = await getConnection();
   const pk = new PublicKey(publicKeyBase58);
   const sig = await conn.requestAirdrop(
     pk,
-    Math.round(amountSol * LAMPORTS_PER_SOL)
+    Math.round(amountSol * LAMPORTS_PER_SOL),
   );
   await conn.confirmTransaction(sig, "confirmed");
   return sig;
@@ -114,7 +119,7 @@ export async function getPublicKeyBase58(): Promise<string> {
  * Get the cached balance (lamports) for the user's public key (if any)
  */
 export async function getCachedBalance(
-  publicKeyBase58?: string
+  publicKeyBase58?: string,
 ): Promise<number | null> {
   try {
     const user = await SecureStorage.getUser();
@@ -136,7 +141,7 @@ export async function getCachedBalance(
  * Returns balance in lamports (number)
  */
 export async function syncAndCacheBalance(
-  publicKeyBase58?: string
+  publicKeyBase58?: string,
 ): Promise<number> {
   const key = publicKeyBase58 || (await getPublicKeyBase58());
   const lamports = await getBalance(key);
@@ -160,7 +165,7 @@ export async function syncAndCacheBalance(
     };
     await SecureStorage.setUser(updated);
   } catch (err) {
-    console.warn("syncAndCacheBalance: failed to persist user balance", err);
+    log.warn("syncAndCacheBalance: failed to persist user balance", err);
   }
   return lamports;
 }
@@ -171,7 +176,7 @@ export async function syncAndCacheBalance(
  */
 export async function signMessage(
   message: Uint8Array,
-  pin: string
+  pin: string,
 ): Promise<Uint8Array> {
   // Unlock private key bytes using the PIN
   const secretKey = await SecureStorage.unlockWithPin(pin);
@@ -209,7 +214,7 @@ export function validateMnemonic(mnemonic: string): boolean {
 
 export function deriveKeypairFromMnemonic(
   mnemonic: string,
-  path = "m/44'/501'/0'/0'"
+  path = "m/44'/501'/0'/0'",
 ): Keypair {
   // Try to obtain a 64-byte seed from mnemonic. If that fails (platform issue),
   // fall back to using mnemonic entropy or a deterministic hash slice.
@@ -219,18 +224,18 @@ export function deriveKeypairFromMnemonic(
     const seed = bip39.mnemonicToSeedSync(mnemonic);
     seedBuf = Buffer.isBuffer(seed) ? seed : Buffer.from(seed as any);
   } catch (err) {
-    console.warn(
+    log.warn(
       "bip39.mnemonicToSeedSync failed; attempting fallback using mnemonic entropy",
-      err
+      err,
     );
     try {
       const entropyHex = bip39.mnemonicToEntropy(mnemonic);
       seedBuf = Buffer.from(entropyHex, "hex");
     } catch (err2) {
       // As a last resort, derive a deterministic buffer from the mnemonic string
-      console.warn(
+      log.warn(
         "bip39.mnemonicToEntropy also failed; falling back to simple hash slice",
-        err2
+        err2,
       );
       const dh = new ShaJS("sha512");
       dh.update(typeof mnemonic === "string" ? mnemonic : String(mnemonic));
@@ -255,19 +260,16 @@ export function deriveKeypairFromMnemonic(
     derivePathFn =
       mod && typeof mod.derivePath === "function" ? mod.derivePath : null;
   } catch (reqErr) {
-    console.warn("Could not require ed25519-hd-key at runtime:", reqErr);
+    log.warn("Could not require ed25519-hd-key at runtime", reqErr);
     derivePathFn = null;
   }
 
   try {
-    console.debug(
-      "deriveKeypairFromMnemonic: seedBuf length=",
-      seedBuf.length,
-      "type=",
-      Object.prototype.toString.call(seedBuf),
-      "derivePathFn=",
-      !!derivePathFn
-    );
+    log.debug("deriveKeypairFromMnemonic: starting", {
+      seedBufLength: seedBuf.length,
+      seedBufType: Object.prototype.toString.call(seedBuf),
+      hasDerivePathFn: !!derivePathFn,
+    });
 
     if (derivePathFn) {
       // Try hex string first (most common usage)
@@ -275,11 +277,11 @@ export function deriveKeypairFromMnemonic(
         const res = derivePathFn(path, seedBuf.toString("hex"));
         const key = res && (res as any).key;
         if (key && key.length >= 32) return Keypair.fromSeed(key);
-        console.warn("derivePath returned unexpected key (hex input)", {
+        log.warn("derivePath returned unexpected key (hex input)", undefined, {
           keyLength: key ? key.length : undefined,
         });
       } catch (innerErrHex) {
-        console.warn("derivePath(hex) threw:", innerErrHex);
+        log.warn("derivePath(hex) threw", innerErrHex);
       }
 
       // Try passing the Buffer/Uint8Array directly
@@ -287,26 +289,30 @@ export function deriveKeypairFromMnemonic(
         const res = derivePathFn(path, seedBuf);
         const key = res && (res as any).key;
         if (key && key.length >= 32) return Keypair.fromSeed(key);
-        console.warn("derivePath returned unexpected key (buffer input)", {
-          keyLength: key ? key.length : undefined,
-        });
+        log.warn(
+          "derivePath returned unexpected key (buffer input)",
+          undefined,
+          {
+            keyLength: key ? key.length : undefined,
+          },
+        );
       } catch (innerErrBuf) {
-        console.warn("derivePath(buffer) threw:", innerErrBuf);
+        log.warn("derivePath(buffer) threw", innerErrBuf);
       }
     } else {
-      console.warn(
-        "derivePath function not available; skipping ed25519-hd-key derivation"
+      log.warn(
+        "derivePath function not available; skipping ed25519-hd-key derivation",
       );
     }
 
     // If derivePath didn't succeed or wasn't available, fall back to using the first 32 bytes of seedBuf
-    console.warn(
-      "ed25519-hd-key derivePath failed or unavailable; falling back to seed slice"
+    log.warn(
+      "ed25519-hd-key derivePath failed or unavailable; falling back to seed slice",
     );
     const fallbackSeed = seedBuf && seedBuf.slice ? seedBuf.slice(0, 32) : null;
     if (!fallbackSeed) {
       throw new Error(
-        "Unable to obtain fallback seed (seedBuf.slice undefined)"
+        "Unable to obtain fallback seed (seedBuf.slice undefined)",
       );
     }
     return Keypair.fromSeed(new Uint8Array(fallbackSeed));
@@ -350,9 +356,9 @@ export async function createWalletFromMnemonic(options: {
   try {
     kp = deriveKeypairFromMnemonic(mnemonic, path);
   } catch (err) {
-    console.error("Failed to derive keypair from mnemonic:", err);
+    log.error("Failed to derive keypair from mnemonic", err);
     throw new Error(
-      "Failed to derive keypair from mnemonic. Please verify your mnemonic and try again."
+      "Failed to derive keypair from mnemonic. Please verify your mnemonic and try again.",
     );
   }
 
@@ -363,7 +369,7 @@ export async function createWalletFromMnemonic(options: {
   await SecureStorage.initializeSecureStorageFromSecretKey(
     kp.secretKey,
     useBiometric ? "biometric" : pin!,
-    { useBiometric }
+    { useBiometric },
   );
 
   if (storeMnemonic) {
